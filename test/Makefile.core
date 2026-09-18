@@ -1,0 +1,9 @@
+SIM ?= icarus
+TOPLEVEL_LANG = verilog
+VERILOG_SOURCES = $(CURDIR)/../src/engine.v
+TOPLEVEL = protocol_engine
+COCOTB_TEST_MODULES = test_engine
+SIM_BUILD = sim_build/core
+COCOTB_RESULTS_FILE = results_core.xml
+export PYTHONPATH := $(CURDIR)/../host:$(PYTHONPATH)
+include $(shell cocotb-config --makefiles)/Makefile.sim

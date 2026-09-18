@@ -15,7 +15,7 @@ __pycache__/
 .venv/
 build/
 dist/
-test/results.xml
+test/results*.xml
 test/gate_level_netlist.v
 test/output/
 formal/*/
