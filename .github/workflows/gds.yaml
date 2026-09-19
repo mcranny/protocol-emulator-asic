@@ -33,3 +33,34 @@ jobs:
       id-token: write
     steps:
       - uses: TinyTapeout/tt-gds-action/viewer@3412659307918422f3f0727917cf9b499aaca588
+
+  acceptance:
+    needs: [gds, precheck, gl_test]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: GDS_logs
+          path: evidence/GDS_logs
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: precheck_reports
+          path: evidence/precheck_reports
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: gatelevel_test_results
+          path: evidence/gatelevel_test_results
+      - name: Verify physical evidence
+        shell: bash
+        run: |
+          python tools/check_physical.py \
+            --metrics evidence/GDS_logs/runs/wokwi/final/metrics.json \
+            --config evidence/GDS_logs/runs/wokwi/resolved.json \
+            --precheck evidence/precheck_reports/results.xml \
+            --gatelevel evidence/gatelevel_test_results/results.xml \
+            | tee evidence/physical-summary.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: physical-summary
+          path: evidence/physical-summary.json
