@@ -6,7 +6,7 @@ signoff issues are in the [validation record](validation.md).
 
 ## Current capability
 
-PRs #1 through #5 are merged. The project contains one programmable timing
+The V1 functional implementation is merged. The project contains one programmable timing
 engine, 64 x 24-bit instruction memory, two working registers, an output
 shifter, a four-byte TX FIFO, an SPI host path, Python tools and reference
 model, and firmware-driven UART 8N1 transmission. Tests cover programming
@@ -33,23 +33,10 @@ host jitter but cannot correct a sustained bandwidth deficit.
 
 ## Gate 0: close V1 before expanding functionality
 
-Keep these fixes separate from new features:
-
-1. Add the pinned PDK's required primitive models to gate-level compilation.
-   First prove netlist elaboration, then pass all three pin-driven suites on
-   the actual submitted netlist. Preserve waveforms, firmware, and results.
-2. Trace and repair the 55 slew and 123 fanout violations. Review clock-tree
-   leaf loading and data-net buffering/sizing. Rerun routed setup/hold and
-   geometry checks after repairs; retain the 6x4 and 25 MHz requirements.
-3. Extend physical acceptance to reject missing or violating electrical-rule
-   metrics at every required corner. Add negative tests for these cases.
-   Audit constraint coverage and CDC/reset assumptions; a positive slack
-   number alone is insufficient evidence.
-4. Retain Python JUnit results and a commit/tool/seed/artifact manifest;
-   require all mandatory jobs to pass on the same source revision. Archive
-   the matching GDS, netlist, SPEF, configuration, and reports before tagging
-   V1. Keep functional gate-level testing distinct from delay-annotated
-   simulation and STA.
+The primitive-model and release-check fixes are merged. Electrical closure,
+same-revision full physical acceptance, and release publication remain.
+Use the [validation record](validation.md) as the single source of current
+measurements and blockers; do not add Phase 2 features to the closure PR.
 
 Exit: all mandatory V1 gates pass from a clean checkout, with no unresolved
 electrical violations. Do not describe a development merge as a V1 release.
