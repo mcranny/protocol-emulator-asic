@@ -66,3 +66,30 @@ An explicit tighter optimization constraint makes that margin visible to the
 repair engine. No signoff limit is increased or filtered out. Both the
 original and added repair passes remain enabled, and all final electrical,
 antenna, geometry, timing, precheck, and gate-level gates must still pass.
+
+## Second candidate and local repair diagnosis
+
+Run [35460188674](https://github.com/mcranny/protocol-emulator-asic/actions/runs/35460188674)
+at c22a3d4 failed the slow and typical slew gates. Final counts were 125 slow,
+23 typical, and zero fast slew violations under the tighter 1.5 ns constraint,
+plus one fanout violation per corner. Standard-cell area was 241531 um2
+(26.7649%). Worst setup/hold slack remained +21.090696 / +0.100768 ns.
+Precheck, gate-level CI, and acceptance were skipped.
+
+A local native ARM64 run of the exact OpenROAD revision dcf36133 reproduced
+the extracted slow-corner slew report from the archived database, SDC, and
+SPEF. The archived resizer_values_after.rpt showed zero layer/via RC entries
+at every corner, despite nonzero values in tlef_values.rpt. The pinned flow's
+default set_rc path does not initialize those tables when LAYERS_RC is empty.
+
+A controlled probe of the post-antenna database with explicit technology-LEF
+layer/via values inserted 23 buffers in 24 nets, versus four buffers in the
+archived repair pass. Its immediate estimated slow-corner slew/fanout report
+was clean. This proves a repair-path improvement, not extracted signoff:
+detailed routing, antenna repair, and extraction can introduce later violations.
+
+The third configuration explicitly populates LAYERS_RC for all nominal-RC
+corners and VIAS_R using the pinned technology-LEF values. Units are kohm/um,
+pF/um, and kohm respectively. It retains the 1.5 ns constraint, all signoff
+corners, 25 MHz, and 6x4. A regression test freezes these values. Final routed
+electrical metrics, precheck, and matching gate-level tests are still required.

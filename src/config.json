@@ -34,6 +34,24 @@
     "nom_fast_1p32V_m40C",
     "nom_typ_1p20V_25C"
   ],
+  "//": "Explicit nominal-RC values from the pinned CMOS5L technology LEF (kohm/um, pF/um).",
+  "//": "Populate per-corner layer/via tables used by routed resizer buffering.",
+  "LAYERS_RC": {
+    "nom_*": {
+      "Metal1": {"res": 0.00084375, "cap": 0.000068784},
+      "Metal2": {"res": 0.000515, "cap": 0.00009302},
+      "Metal3": {"res": 0.000515, "cap": 0.000092},
+      "Metal4": {"res": 0.000515, "cap": 0.000091788}
+    }
+  },
+  "VIAS_R": {
+    "*": {
+      "Cont": {"res": 0.022},
+      "Via1": {"res": 0.02},
+      "Via2": {"res": 0.02},
+      "Via3": {"res": 0.02}
+    }
+  },
   "//": "Library clock-buffer fanout limit is 8; leave room for added loads.",
   "CTS_SINK_CLUSTERING_SIZE": 6,
   "//": "Repair routed parasitics, then recover setup/hold after buffering.",
