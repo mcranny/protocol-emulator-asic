@@ -1,47 +1,34 @@
 name: gds
-
-on:
-  push:
-  workflow_dispatch:
-
+on: [push, workflow_dispatch]
 jobs:
   gds:
     runs-on: ubuntu-24.04
     steps:
-      - name: checkout repo
-        uses: actions/checkout@v6
-        with:
-          submodules: recursive
-
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
       - name: Build GDS
-        uses: TinyTapeout/tt-gds-action@ihp-cmos5l
+        uses: TinyTapeout/tt-gds-action@3412659307918422f3f0727917cf9b499aaca588
         with:
           pdk: ihp-sg13cmos5l
-
+          tools-ref: f6bf5c587fba4a4a8abd4c0a03234fccfbf6e61e
+          librelane-version: 3.1.0.dev3
   precheck:
     needs: gds
     runs-on: ubuntu-24.04
     steps:
-      - name: Run Tiny Tapeout Precheck
-        uses: TinyTapeout/tt-gds-action/precheck@ihp-cmos5l
-
+      - uses: TinyTapeout/tt-gds-action/precheck@3412659307918422f3f0727917cf9b499aaca588
+        with:
+          tools-ref: f6bf5c587fba4a4a8abd4c0a03234fccfbf6e61e
   gl_test:
     needs: gds
     runs-on: ubuntu-24.04
     steps:
-      - name: checkout repo
-        uses: actions/checkout@v6
-        with:
-          submodules: recursive
-
-      - name: GL test
-        uses: TinyTapeout/tt-gds-action/gl_test@ihp-cmos5l
-
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: TinyTapeout/tt-gds-action/gl_test@3412659307918422f3f0727917cf9b499aaca588
   viewer:
     needs: gds
     runs-on: ubuntu-24.04
     permissions:
-      pages: write # to deploy to Pages
-      id-token: write # to verify the deployment originates from an appropriate source
+      pages: write
+      id-token: write
     steps:
-      - uses: TinyTapeout/tt-gds-action/viewer@ihp-cmos5l
+      - uses: TinyTapeout/tt-gds-action/viewer@3412659307918422f3f0727917cf9b499aaca588
