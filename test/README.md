@@ -1,47 +1,21 @@
-# Sample testbench for a Tiny Tapeout project
+# Simulation
 
-This is a sample testbench for a Tiny Tapeout project. It uses [cocotb](https://docs.cocotb.org/en/stable/) to drive the DUT and check the outputs.
-See below to get started or for more information, check the [website](https://tinytapeout.com/hdl/testing/).
-
-## Setting up
-
-1. Edit [Makefile](Makefile) and modify `PROJECT_SOURCES` to point to your Verilog files.
-2. Keep the module instantiated in [tb.v](tb.v) aligned with `info.yaml`.
-
-## How to run
-
-To run the RTL simulation:
+Install the pinned Python dependencies in requirements.txt and Icarus Verilog.
+From the repository root:
 
 ```sh
-make -B
+make -C test -f Makefile.core
+make -C test
 ```
 
-To run gatelevel simulation, first harden your project and copy `../runs/wokwi/results/final/verilog/gl/{your_module_name}.v` to `gate_level_netlist.v`.
+The core suite compares all architectural state against the Python model on
+each edge. The top-level suite uses only external pins and independently
+checks SPI framing/readback, error containment, UART bit cells, simultaneous
+host traffic, phase offsets, and reset/disable/stop during transmission.
 
-Then run:
+The GDS workflow copies the submitted netlist into gate_level_netlist.v and
+runs `GATES=yes make`. This functional netlist test uses the CMOS5L library
+models under PDK_ROOT. Routed timing is a separate static-analysis gate.
 
-```sh
-make -B GATES=yes
-```
-
-If you wish to save the waveform in VCD format instead of FST format, edit tb.v to use `$dumpfile("tb.vcd");` and then run:
-
-```sh
-make -B FST=
-```
-
-This will generate `tb.vcd` instead of `tb.fst`.
-
-## How to view the waveform file
-
-Using GTKWave
-
-```sh
-gtkwave tb.fst tb.gtkw
-```
-
-Using Surfer
-
-```sh
-surfer tb.fst
-```
+Results are in results.xml/results_core.xml. Pin-level waveforms are in tb.fst.
+Reproduction data and divergence reports are retained under output/.

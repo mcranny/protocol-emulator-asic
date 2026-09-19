@@ -3,33 +3,60 @@
 A programmable protocol emulator for reproducible hardware debugging on the
 Tiny Tapeout IHP CMOS5L process.
 
-The project will execute deterministic protocol programs, introduce controlled
-faults, capture peer responses, and export experiments as replayable regression
-tests. UART, SPI, and I2C are the initial protocol targets.
+The V1 implementation contains a single timing engine, 64 x 24-bit instruction
+memory, a four-byte TX FIFO, and an SPI programming/control interface. UART 8N1
+transmission is implemented in 25 instructions of firmware. Target system clock:
+25 MHz; physical footprint: 6x4 tiles.
 
 ## Status
 
-The repository currently contains the CMOS5L project foundation. The top-level
-module provides a reset-safe pin passthrough used to validate simulation and the
-physical implementation flow before the programmable engines are introduced.
+Python, RTL differential, pin-level UART/SPI, and formal safety checks are
+implemented. Physical acceptance is tracked in [the validation record](docs/validation.md);
+V1 is not released until routed timing, GDS, precheck, and gate-level tests pass.
+No silicon or FPGA operation is claimed.
+
+## Use
+
+Install Python 3.11+, Icarus Verilog, Verilator, and Yosys. In a virtual
+environment:
+
+```sh
+python -m pip install -e .
+python -m pip install -r test/requirements.txt
+make test
+protocol-emulator assemble examples/uart_1000000.asm /tmp/uart.bin
+protocol-emulator disassemble /tmp/uart.bin
+protocol-emulator run /tmp/uart.bin --data '00 55 a5 ff' --cycles 1200
+```
+
+The default simulation transport starts a fresh device for each CLI invocation.
+Use `run` for a complete simulated session, or the Python library for persistent
+state. A Linux SPI host can install `.[hardware]` and use `--transport spi`;
+that adapter is not validated on physical equipment. The CLI also exposes
+`load`, `verify`, `fifo-write`, `start`, `stop`, `reset`, `status`, and `version`.
+
+## Documentation
+
+- [ISA, timing, host interface and pin allocation](docs/v1-contract.md)
+- [Verification and clock/reset crossing review](docs/verification.md)
+- [Build and physical acceptance evidence](docs/validation.md)
+- [Project datasheet](docs/info.md)
 
 ## Structure
 
-- `src/`: synthesizable Verilog and physical-flow configuration
-- `test/`: cocotb testbench and simulation support
-- `docs/`: project datasheet content
-- `.github/workflows/`: simulation, documentation, FPGA, GDS, precheck, and gate-level jobs
+- `src/`: synthesizable Verilog and physical configuration
+- `host/protocol_emulator/`: assembler, model, loader and CLI
+- `examples/`: generic pulse and UART firmware
+- `tests/`: Python specification and host tests
+- `test/`: core differential and pin-driven cocotb tests
+- `formal/`: induction proof script
+- `docs/`: interfaces, verification, and evidence
 
-## Local simulation
-
-Install Icarus Verilog and the Python packages in `test/requirements.txt`, then
-run:
-
-```sh
-make -C test
-```
+UART receive, a second engine, on-chip capture/replay, and SPI/I2C firmware are
+post-V1 work.
 
 ## License
 
-Licensed under the Apache License 2.0. The repository foundation is derived
-from the Tiny Tapeout IHP Verilog project template and retains its license.
+Apache License 2.0. The project foundation derives from the
+[Tiny Tapeout CMOS5L Verilog template](https://github.com/TinyTapeout/ttihp-verilog-template/tree/cmos5l)
+at `b86a2a781484bcab7ba522dc5de540086695a430`, retaining its license.
