@@ -52,6 +52,7 @@ jobs:
           name: gatelevel_test_results
           path: evidence/gatelevel_test_results
       - name: Verify physical evidence
+        shell: bash
         run: |
           python tools/check_physical.py \
             --metrics evidence/GDS_logs/runs/wokwi/final/metrics.json \
