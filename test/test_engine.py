@@ -145,6 +145,11 @@ async def differential_random(dut):
             ]
             words.append(rng.choice(choices))
         words.append(encode("JMP", 0))
+        output = Path("output")
+        output.mkdir(exist_ok=True)
+        (output / f"program-{seed}.json").write_text(json.dumps({
+            "seed": seed, "program": words, "stimulus_cycles": 1200,
+        }, indent=2))
         await h.load(words)
         await h.step(command=(3, 0, 0))
         for i in range(1200):

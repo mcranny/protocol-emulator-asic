@@ -1,5 +1,5 @@
 name: test
-on: [push, workflow_dispatch]
+on: [push, workflow_dispatch, workflow_call]
 jobs:
   test:
     runs-on: ubuntu-24.04
@@ -14,7 +14,7 @@ jobs:
           sudo apt-get install -y iverilog verilator yosys
           pip install -r test/requirements.txt
       - name: Python specification tests
-        run: python -m pytest -q
+        run: python -m pytest -q --junitxml=build/python-results.xml
       - name: RTL lint
         run: verilator --lint-only --Wno-DECLFILENAME --top-module tt_um_mcranny_protocol_emulator src/*.v
       - name: Engine differential simulation
@@ -23,6 +23,9 @@ jobs:
         run: make formal
       - name: RTL simulation
         run: make -C test
+      - name: Record evidence provenance
+        if: always()
+        run: python tools/collect_evidence.py --kind rtl --output build/rtl-evidence.json
       - uses: test-summary/action@31493c76ec9e7aa675f1585d3ed6f1da69269a86
         if: always()
         with:
@@ -36,3 +39,6 @@ jobs:
             test/results*.xml
             test/output/*
             build/formal-engine.log
+            build/python-results.xml
+            build/rtl-evidence.json
+            test/sim_build/core/*.fst

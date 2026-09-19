@@ -108,15 +108,34 @@ the pinned action installs IHP-Open-PDK revision
 `2bbec755dc67ca3db0261c3d6163e15735d66710`. Nested actions and some dependencies
 remain dynamically resolved; this is not a fully hermetic toolchain.
 
-Download the run's GDS_logs, precheck_reports, and gatelevel_test_results
-artifacts to separate directories, then run:
+The gate-level source list now includes the pinned PDK's UDP primitives.
+All three suites passed locally on the original b8493a4 routed netlist after
+that source-list fix; this does not resolve its electrical violations.
+
+The strengthened release workflow runs functional verification within the
+physical workflow, retains provenance/checksum manifests, and rejects slew,
+fanout, and capacitance violations at every required corner. It also requires
+the configured 6x4 footprint, all nine prechecks, the three named gate-level
+suites, core suites, Python results, and induction success. These improvements
+supersede the checker/retention gaps recorded in the historical audit above.
+
+Download the same run's artifacts using the directory names below (including
+test-results as functional, tt_submission as submission, and both manifests),
+then run with the exact workflow head SHA:
 
 ```sh
 python tools/check_physical.py \
   --metrics GDS_logs/runs/wokwi/final/metrics.json \
   --config GDS_logs/runs/wokwi/resolved.json \
   --precheck precheck_reports/results.xml \
-  --gatelevel gatelevel_test_results/results.xml
+  --gatelevel gatelevel_test_results/results.xml \
+  --source-commit FULL_WORKFLOW_HEAD_SHA \
+  --submission submission/tt_submission/commit_id.json \
+  --rtl-manifest functional/build/rtl-evidence.json \
+  --gatelevel-manifest gatelevel-evidence/gatelevel-evidence.json \
+  --python-tests functional/build/python-results.xml \
+  --core-tests functional/test/results_core.xml \
+  --formal-log functional/build/formal-engine.log
 ```
 
 The checker rejects absent timing corners, unconstrained-path sentinel values,

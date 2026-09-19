@@ -3,7 +3,7 @@
 test: python-test lint rtl-test formal
 
 python-test:
-	python -m pytest -q
+	python -m pytest -q --junitxml=build/python-results.xml
 
 rtl-test:
 	$(MAKE) -C test -f Makefile.core
