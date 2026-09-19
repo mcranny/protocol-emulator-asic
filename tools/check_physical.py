@@ -44,7 +44,9 @@ def check(metrics, config, precheck, gatelevel):
     if set(config.get("STA_CORNERS", [])) != set(CORNERS):
         raise ValueError("required timing corners missing or changed")
     for key in ("design__instance_unmapped__count", "route__drc_errors",
-                "magic__drc_error__count", "design__lvs_error__count"):
+                "magic__drc_error__count", "design__lvs_error__count",
+                "antenna__violating__nets", "antenna__violating__pins",
+                "route__antenna_violation__count"):
         if number(metrics, key) != 0:
             raise ValueError(f"nonzero signoff errors: {key}")
     area = number(metrics, "design__instance__area__stdcell")
@@ -64,6 +66,8 @@ def check(metrics, config, precheck, gatelevel):
     timing = {}
     for corner in CORNERS:
         timing[corner] = {}
+        if number(metrics, f"timing__unannotated_net_filtered__count__corner:{corner}") != 0:
+            raise ValueError(f"unannotated signal parasitics at {corner}")
         for kind in ("setup", "hold"):
             slack = number(metrics, f"timing__{kind}__ws__corner:{corner}")
             r2r = number(metrics, f"timing__{kind}_r2r__ws__corner:{corner}")

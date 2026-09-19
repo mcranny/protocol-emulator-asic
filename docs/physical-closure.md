@@ -39,3 +39,30 @@ This configuration is a closure candidate, not proof of closure. Accept only
 the resulting routed metrics and matching full-workflow regression artifacts.
 In particular, recheck final fanout after antenna-diode insertion, clock-tree
 changes, and hold repair; an intermediate report is not sufficient.
+
+## First candidate results and second repair
+
+Run [35429649064](https://github.com/mcranny/protocol-emulator-asic/actions/runs/35429649064)
+at f3e605e completed routing and failed the newly enforced slow-corner slew
+gate. Final fanout violations fell from 123 to 3; no clock-tree leaf buffers
+remain on the fanout violator list. Slew violations remain at 55, with worst
+slew 3.320069 ns. Standard-cell area is 241308 um2 (26.7402% utilization).
+Worst setup/hold slacks are 21.167381 / 0.098810 ns; geometry, LVS, capacitance,
+and final antenna violation counts are zero. No precheck or gate-level job
+ran because the physical build failed.
+
+The three remaining fanout drivers are data nets with added antenna diodes:
+_12267_/Y drives nine diodes plus three other loads, _13010_/Y drives six
+diodes plus three other loads, and fanout1125/X drives three diodes plus six
+other loads. The standard flow repairs design rules before antenna insertion,
+so those extra loads were not present during its final design-rule repair.
+
+The next configuration adds a second routed design-repair pass immediately
+after antenna repair, before the existing timing-repair and detailed-routing
+steps. It also sets a conservative 1.5 ns transition constraint below the
+2.5074 ns slow-corner library limit: the first routed repair detected only one
+slew violation and resized no cells, despite the later slow-corner failures.
+An explicit tighter optimization constraint makes that margin visible to the
+repair engine. No signoff limit is increased or filtered out. Both the
+original and added repair passes remain enabled, and all final electrical,
+antenna, geometry, timing, precheck, and gate-level gates must still pass.

@@ -10,10 +10,13 @@ spec.loader.exec_module(gate)
 def evidence(tmp_path):
     metrics = {"design__instance_unmapped__count": 0, "route__drc_errors": 0,
                "magic__drc_error__count": 0, "design__lvs_error__count": 0,
+               "antenna__violating__nets": 0, "antenna__violating__pins": 0,
+               "route__antenna_violation__count": 0,
                "design__instance__area__stdcell": 300000,
                "design__core__area": 900000,
                "design__instance__utilization__stdcell": 1 / 3}
     for corner in gate.CORNERS:
+        metrics[f"timing__unannotated_net_filtered__count__corner:{corner}"] = 0
         for kind in ("setup", "hold"):
             metrics[f"timing__{kind}__ws__corner:{corner}"] = 1.0
             metrics[f"timing__{kind}_r2r__ws__corner:{corner}"] = 2.0
@@ -124,3 +127,17 @@ def test_reject_substituted_artifact(tmp_path):
     path.write_text("<testsuite><testcase/></testsuite>")
     with pytest.raises(ValueError, match="checksum"):
         gate.verify_checksum(manifest, "test/results.xml", path)
+
+
+@pytest.mark.parametrize("key", ["antenna__violating__nets", "antenna__violating__pins",
+    "route__antenna_violation__count", *[
+        f"timing__unannotated_net_filtered__count__corner:{corner}" for corner in gate.CORNERS]])
+@pytest.mark.parametrize("missing", [False, True])
+def test_antenna_and_parasitic_evidence(tmp_path, key, missing):
+    metrics, config, pre, gl = evidence(tmp_path)
+    if missing:
+        del metrics[key]
+    else:
+        metrics[key] = 1
+    with pytest.raises(ValueError):
+        gate.check(metrics, config, pre, gl)
