@@ -45,3 +45,14 @@ def test_cli_invalid_image(tmp_path):
     with pytest.raises(SystemExit) as err:
         main(["load", str(image)])
     assert err.value.code == 2
+
+def test_shorter_load_clears_old_tail():
+    t = SimulationTransport(cycles_per_frame=1)
+    d = Device(t)
+    d.load(assemble("NOP\nNOP\nJMP 0"))
+    d.load(assemble("NOP"))
+    assert t.model.program[1:] == [0xC00000] * 63
+    d.start()
+    for _ in range(3):
+        t.model.step()
+    assert not t.model.running and t.model.errors == 0

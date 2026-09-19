@@ -1,6 +1,6 @@
 """Host interface v1 with a one-frame response pipeline."""
 from typing import Protocol
-from .isa import decode
+from .isa import decode, encode
 from .model import Model
 
 VERSION = 0x010140
@@ -44,10 +44,12 @@ class Device:
         self.check_version()
         if self.status() & 1:
             raise DeviceError("stop the engine before loading")
-        for addr, word in enumerate(words):
+        # Clear stale instructions from a previously longer image.
+        padded = list(words) + [encode("HALT")] * (64 - len(words))
+        for addr, word in enumerate(padded):
             if self.request(1, addr, word) != word:
                 raise DeviceError(f"write acknowledgement mismatch at {addr}")
-        self.verify(words)
+        self.verify(padded)
 
     def verify(self, words: list[int]):
         if not 1 <= len(words) <= 64:

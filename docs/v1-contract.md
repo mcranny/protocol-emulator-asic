@@ -116,3 +116,19 @@ Each release must include independent UART decoding, cycle-level comparison
 against the Python model, formal safety results, and the pinned CMOS5L flow's
 GDS/precheck/LVS/routed setup-and-hold reports plus representative gate-level
 UART tests. Functional netlist simulation is distinct from timing signoff.
+
+## Host software behavior
+
+The loader validates the complete image before writing, requires a stopped
+engine, fills unused instruction locations with HALT, and verifies all 64
+words. Raw WRITE affects only its addressed word; programs loaded through the
+raw interface must provide their own termination or loop.
+
+The Python API serializes request/NOP pairs. At 1 MHz host SPI, each FIFO byte
+therefore consumes at least 80 microseconds, excluding CS gaps and host
+overhead. Four queued bytes can transmit consecutively at 1 Mbaud; indefinite
+1 Mbaud streaming is not supported at that host refill rate. FIFO starvation
+leaves UART idle high until the next byte arrives.
+
+Reset deassertion is synchronized for two system edges at the top level;
+hold reset low for at least two edges and allow ten edges before host traffic.

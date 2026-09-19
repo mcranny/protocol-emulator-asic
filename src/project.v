@@ -1,28 +1,43 @@
-/*
- * Copyright (c) 2026 Matthew Cranny
- * SPDX-License-Identifier: Apache-2.0
- */
-
+// Copyright (c) 2026 Matthew Cranny
+// SPDX-License-Identifier: Apache-2.0
 `default_nettype none
 
 module tt_um_mcranny_protocol_emulator (
-    input  wire [7:0] ui_in,    // Dedicated inputs
-    output wire [7:0] uo_out,   // Dedicated outputs
-    input  wire [7:0] uio_in,   // IOs: Input path
-    output wire [7:0] uio_out,  // IOs: Output path
-    output wire [7:0] uio_oe,   // IOs: Enable path (active high: 0=input, 1=output)
-    input  wire       ena,      // always 1 when the design is powered, so you can ignore it
-    input  wire       clk,      // clock
-    input  wire       rst_n     // reset_n - low to reset
+    input wire [7:0] ui_in,
+    output wire [7:0] uo_out,
+    input wire [7:0] uio_in,
+    output wire [7:0] uio_out,
+    output wire [7:0] uio_oe,
+    input wire ena, clk, rst_n
 );
+    (* async_reg = "true" *) reg [7:0] pins_meta, pins_sync;
+    (* async_reg = "true" *) reg [1:0] reset_pipe;
+    wire reset_n = reset_pipe[1];
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) reset_pipe <= 0;
+        else reset_pipe <= {reset_pipe[0], 1'b1};
+    end
+    wire cmd_valid, frame_error, miso, running, error;
+    wire [7:0] cmd, addr;
+    wire [23:0] payload;
+    wire [39:0] reply;
 
-  // Foundation behavior: pass dedicated inputs through only while the design
-  // is selected and out of reset. Bidirectional pins remain released.
-  assign uo_out  = (ena && rst_n) ? ui_in : 8'b0;
-  assign uio_out = 8'b0;
-  assign uio_oe  = 8'b0;
-
-  // List all unused inputs to prevent warnings
-  wire _unused = &{clk, uio_in, 1'b0};
-
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin pins_meta <= 0; pins_sync <= 0; end
+        else begin pins_meta <= uio_in; pins_sync <= pins_meta; end
+    end
+    protocol_host_spi host (
+        .clk(clk), .rst_n(reset_n), .ena(ena),
+        .sck(ui_in[0]), .cs_n(ui_in[1]), .mosi(ui_in[2]), .miso(miso),
+        .cmd_valid(cmd_valid), .frame_error(frame_error),
+        .cmd(cmd), .addr(addr), .payload(payload), .reply(reply)
+    );
+    protocol_engine engine (
+        .clk(clk), .rst_n(reset_n), .ena(ena), .pins_in(pins_sync),
+        .cmd_valid(cmd_valid), .frame_error(frame_error),
+        .cmd(cmd), .addr(addr), .payload(payload), .reply(reply),
+        .pins_out(uio_out), .pins_oe(uio_oe), .running(running), .error(error)
+    );
+    assign uo_out = {5'b0, error, running, miso};
+    wire _unused = &{ui_in[7:3], 1'b0};
 endmodule

@@ -1,3 +1,4 @@
+export PYTHONPATH := $(CURDIR)/../host:$(PYTHONPATH)
 # Makefile
 # See https://docs.cocotb.org/en/stable/quickstart.html for more info
 
@@ -6,7 +7,7 @@ SIM ?= icarus
 FST ?= -fst # Use more efficient FST format
 TOPLEVEL_LANG ?= verilog
 SRC_DIR = $(CURDIR)/../src
-PROJECT_SOURCES = project.v
+PROJECT_SOURCES = project.v engine.v host_spi.v
 
 ifneq ($(GATES),yes)
 
