@@ -19,6 +19,23 @@
   "//": "The value is in nanoseconds, so 20ns == 50MHz.",
   "CLOCK_PERIOD": 40,
 
+  "//": "Repair against all signoff corners, not only the default typical corner.",
+  "PNR_CORNERS": [
+    "nom_slow_1p08V_125C",
+    "nom_fast_1p32V_m40C",
+    "nom_typ_1p20V_25C"
+  ],
+  "//": "Library clock-buffer fanout limit is 8; leave room for added loads.",
+  "CTS_SINK_CLUSTERING_SIZE": 6,
+  "//": "Repair routed parasitics, then recover setup/hold after buffering.",
+  "RUN_POST_GRT_DESIGN_REPAIR": true,
+  "RUN_POST_GRT_RESIZER_TIMING": true,
+  "GRT_DESIGN_REPAIR_MAX_SLEW_PCT": 20,
+  "GRT_DESIGN_REPAIR_MAX_CAP_PCT": 20,
+  "//": "Electrical violations are fatal at every characterized corner.",
+  "MAX_SLEW_VIOLATION_CORNERS": ["*"],
+  "MAX_CAP_VIOLATION_CORNERS": ["*"],
+
   "//": "Hold slack margin - Increase them in case you are getting hold violations.",
   "PL_RESIZER_HOLD_SLACK_MARGIN": 0.1,
   "GRT_RESIZER_HOLD_SLACK_MARGIN": 0.05,
