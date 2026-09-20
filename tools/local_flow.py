@@ -54,6 +54,9 @@ def inside(stage, threads):
     if config["CLOCK_PERIOD"] != 40:
         raise ValueError("V1 requires a 40 ns clock period")
     config.update(user_config(project, sizes))
+    # Pinned flow otherwise stringifies an unset thread count as "None".
+    config["OPENROAD_THREADS"] = threads
+    config["STA_THREADS"] = threads
     Path("src/config_merged.json").write_text(json.dumps(config, indent=2) + "\n")
     for command in (("openroad", "-version"), ("yosys", "-V"),
                     (sys.executable, "-m", "librelane", "--version")):

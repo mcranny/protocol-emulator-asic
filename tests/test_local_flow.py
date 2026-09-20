@@ -93,3 +93,27 @@ def test_routed_diagnostic_rejects_missing_required_metrics(tmp_path, key):
     del metrics[key]
     path.write_text(json.dumps(metrics))
     assert flow.route_issues(tmp_path)
+
+
+def test_inside_sets_tool_threads_and_stops_route_before_layout_checks(tmp_path, monkeypatch):
+    import json
+    import sys
+    from types import SimpleNamespace
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src/config.json").write_text('{"CLOCK_PERIOD": 40}')
+    (tmp_path / "info.yaml").write_text("project")
+    sizes_path = tmp_path / "tt/tech/ihp-sg13cmos5l/tile_sizes.yaml"
+    sizes_path.parent.mkdir(parents=True)
+    sizes_path.write_text("tiles")
+    monkeypatch.setitem(sys.modules, "yaml", SimpleNamespace(
+        safe_load=lambda text: {"project": project()} if text == "project"
+        else {"6x4": "0 0 1289.28 710.64"}))
+    monkeypatch.setattr(flow, "output", lambda *args: "tool-version")
+    calls = []
+    monkeypatch.setattr(flow.subprocess, "call", lambda args: calls.append(args) or 0)
+    assert flow.inside("route", 4) == 0
+    config = json.loads((tmp_path / "src/config_merged.json").read_text())
+    assert config["OPENROAD_THREADS"] == config["STA_THREADS"] == 4
+    assert config["CLOCK_PERIOD"] == 40
+    assert calls[0][calls[0].index("--to") + 1] == "OpenROAD.STAPostPNR"
