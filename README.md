@@ -11,8 +11,9 @@ transmission is implemented in 25 instructions of firmware. Target system clock:
 ## Status
 
 Python, RTL differential, pin-level UART/SPI, and formal safety checks are
-implemented. Physical acceptance is tracked in [the validation record](docs/validation.md);
-V1 is not released until routed timing, GDS, precheck, and gate-level tests pass.
+passing in functional CI. The gate-level model-source fix and strict release
+checks are merged. Electrical closure remains in [draft PR #9](https://github.com/mcranny/protocol-emulator-asic/pull/9);
+V1 is **not released**. See [measured results and remaining gates](docs/validation.md).
 No silicon or FPGA operation is claimed.
 
 ## Use
@@ -34,6 +35,10 @@ Use `run` for a complete simulated session, or the Python library for persistent
 state. A Linux SPI host can install `.[hardware]` and use `--transport spi`;
 that adapter is not validated on physical equipment. The CLI also exposes
 `load`, `verify`, `fifo-write`, `start`, `stop`, `reset`, `status`, and `version`.
+
+Physical optimization can run locally with the pinned Docker image; see
+[local builds](docs/local-build.md). Full GDS CI is dispatched manually after
+local optimization, not on every push. It remains mandatory before release.
 
 ## Documentation
 
