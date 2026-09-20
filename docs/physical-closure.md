@@ -93,3 +93,22 @@ corners and VIAS_R using the pinned technology-LEF values. Units are kohm/um,
 pF/um, and kohm respectively. It retains the 1.5 ns constraint, all signoff
 corners, 25 MHz, and 6x4. A regression test freezes these values. Final routed
 electrical metrics, precheck, and matching gate-level tests are still required.
+
+## Third candidate local routed result
+
+The native ARM64 local route/extraction/STA run used the exact physical inputs
+in 3056a35 (captured before commit, so the manifest records c22a3d4 plus dirty
+input hashes). It finished with zero fanout, capacitance, routing-DRC, and
+antenna violations. Slew counts at 1.5 ns are 0 fast, 90 slow, and 0 typical;
+worst slow-corner slew is 2.297081 ns. Area is 242867 um2 (26.9129%), with
+worst setup/hold slack +21.217341 / +0.106257 ns.
+
+This is an improvement, not acceptance under the configured 1.5 ns target.
+The library default is 2.5074 ns, but the current stricter target remains in
+force. Do not silently waive it. Final layout DRC/LVS, precheck, and matching
+gate-level tests were not included in this shortened local run.
+
+Resume from this draft, using the local runner on main. Inspect the slow-corner
+drivers and route-vs-extraction load estimates before choosing the next repair.
+Keep the source/input hashes with each experiment and require a complete
+same-revision acceptance run before release.
