@@ -1,5 +1,8 @@
 name: gds
-on: [push, workflow_dispatch]
+# Full physical acceptance is explicitly dispatched after local optimization.
+# It remains mandatory before a V1 release; routine/doc pushes run test and docs.
+on:
+  workflow_dispatch:
 jobs:
   functional:
     uses: ./.github/workflows/test.yaml

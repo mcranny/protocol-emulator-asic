@@ -1,127 +1,124 @@
 # Validation record
 
-## Initial scaffold: physical baseline passed
+## Current status
 
-Source: `fe0a027824e66360c6543fef5b501daa13a169be`.
+V1 is implemented but **not released**. Functional verification passes; routed
+electrical closure is still in progress in [PR #9](https://github.com/mcranny/protocol-emulator-asic/pull/9).
+The primitive-model fix and stronger release checks are merged. Development
+merges are not physical acceptance, and no FPGA or silicon operation is claimed.
 
-- [RTL CI](https://github.com/mcranny/protocol-emulator-asic/actions/runs/35389810572): passed.
-- [Documentation CI](https://github.com/mcranny/protocol-emulator-asic/actions/runs/35389810548): passed.
-- [Physical run](https://github.com/mcranny/protocol-emulator-asic/actions/runs/35389810547): GDS, precheck, and gate-level jobs passed. The optional viewer failed because GitHub Pages was not configured.
-- 6x4 die: 1289.28 x 710.64 um; core area 902417 um2.
-- Standard-cell area excluding fill: 290.304 um2; utilization 0.03217%.
-- Routed setup/hold violation counts: zero at fast/1.32 V/-40 C,
-  slow/1.08 V/125 C, and typical/1.20 V/25 C nominal-RC corners.
-- Worst input/output setup slack: 23.1864 ns; hold slack: 15.8569 ns.
-- Routing DRC, Magic DRC, and LVS errors: zero. All nine prechecks passed.
+Latest reviewed physical source: `c22a3d440bb1bf25fe691259c937f95bc4e683c3`.
+[Run 35460188674](https://github.com/mcranny/protocol-emulator-asic/actions/runs/35460188674)
+passed its functional job and failed the enforced slew checks. Its precheck,
+gate-level, and final acceptance jobs were consequently skipped.
 
-This combinational scaffold has no register-to-register paths. Its timing
-results validate the flow setup, not the programmable engine's clock rate.
-
-## Integrated V1 candidate: reviewed 2026-09-19
-
-Reviewed source: `b8493a490f751eb550bc3b5ed35d37ada98ad0c2`.
-PRs #1 through #5 were merged on 2026-09-19. The merged tree at `f7711a5`
-is identical to this reviewed source; later documentation changes do not
-constitute a new physical validation.
-
-- [Functional CI](https://github.com/mcranny/protocol-emulator-asic/actions/runs/35414846609):
-  68 Python tests, three core differential suites, three pin-level SPI/UART
-  suites, Verilator lint, and Yosys temporal induction passed.
-- Core differential suites compare more than 26,000 system cycles, including
-  twelve fixed random seeds. Pin-level tests independently decode both UART
-  rates and check interruption safety and concurrent host traffic.
-- [Physical run](https://github.com/mcranny/protocol-emulator-asic/actions/runs/35414846616):
-  GDS and all nine prechecks passed. Gate-level elaboration failed, and the
-  dependent acceptance job was skipped. **V1 is not release-ready.**
-
-### Routed metrics
-
-The submission's commit_id.json matches the reviewed source and physical run.
-Metrics below are from GDS_logs/runs/wokwi/final/metrics.json, checked against
-the submission metrics and post-route STA reports.
-
-| Metric | Result |
+| Latest candidate metric | Result |
 | --- | --- |
-| Die / core area | 916214 / 902417 um2 (6x4 tiles) |
-| Standard-cell area, excluding filler | 235839 um2 |
-| Standard-cell utilization | 26.1342% |
-| Sequential cells | 1943 |
-| Target period | 40 ns (25 MHz) |
-| Routing DRC / Magic DRC / LVS errors | 0 / 0 / 0 |
-| Precheck tests | 9 passed, including KLayout CMOS5L DRC |
+| Python tests | 176 passed |
+| RTL suites | 3 core differential + 3 pin-level passed |
+| Lint / formal induction | Passed |
+| Die / target | 1289.28 x 710.64 um (6x4) / 40 ns (25 MHz) |
+| Standard-cell area / utilization, excluding filler | 241531 um2 / 26.7649% |
+| Worst routed setup / hold slack | +21.090696 / +0.100768 ns |
+| Slew violations, fast / slow / typical | 0 / 125 / 23 |
+| Fanout violations | 1 at each corner |
+| Capacitance / Magic DRC / LVS errors | 0 / 0 / 0 |
 
-| Nominal-RC corner | Worst setup slack (ns) | Worst hold slack (ns) | Register-to-register setup slack (ns) |
-| --- | ---: | ---: | ---: |
-| Fast, 1.32 V, -40 C | 22.685685 | 0.109883 | 38.438278 |
-| Slow, 1.08 V, 125 C | 21.130863 | 0.611260 | 23.099981 |
-| Typical, 1.20 V, 25 C | 22.119335 | 0.290114 | 30.822704 |
+Slew counts use the candidate's conservative **1.5 ns** constraint; they cannot
+be compared directly with counts under the earlier library limits. Positive
+setup/hold slack is not electrical signoff or an Fmax measurement. Available
+placement area is not a guarantee of equivalent capacity for new features.
 
-Reported setup/hold violation counts are zero at each corner. These are
-configured-flow STA results, not measured silicon performance, an Fmax sweep,
-or complete electrical signoff. The unused 73.8658% of core placement area
-does not guarantee capacity for that much additional logic or routing.
+## Local closure checkpoint
 
-### Outstanding release blockers
+The native ARM64 LibreLane 3.1.0.dev3 container completed synthesis through
+routing, extraction, and final STA locally. Physical inputs match draft
+commit `3056a35`; the captured manifest records the earlier `c22a3d4` plus
+dirty inputs, with hashes identifying the exact configuration. This is
+development evidence, not clean-checkout release acceptance.
 
-1. Gate-level compilation lacks definitions for `ihp_dff_r`, `ihp_mux2`, and
-   `ihp_mux4` (1943, 1413, and 257 references respectively). The test Makefile
-   lists IO and standard-cell models but not their required primitive models.
-   Resolve the source list against the pinned PDK and rerun the three suites.
-   No integrated gate-level waveform or results XML was produced; this is a
-   simulator elaboration failure, not a passing or failing UART simulation.
-2. Post-route reports contain **55 slow-corner slew violations** and **123
-   fanout violations at each corner**. Worst reported slew is 3.282584 ns
-   against a 2.507400 ns limit. Fanout reports include clock-tree leaf buffers
-   with 19 loads against a limit of 8. Investigate buffering, sizing, clock
-   tree configuration, and applicable library constraints; positive setup
-   slack does not resolve these violations.
-3. `tools/check_physical.py` currently checks geometry/LVS and setup/hold, but
-   does not enforce slew, fanout, or capacitance limits. Strengthen the checker
-   and rejection tests before using it for release acceptance. Do not waive
-   or relax limits just to obtain a green workflow.
+Explicit nominal layer/via RC initialization improved the repair path:
 
-### Artifact audit
+| Local extracted result | Value |
+| --- | --- |
+| Standard-cell area / utilization | 242867 um2 / 26.9129% |
+| Worst setup / hold slack | +21.217341 / +0.106257 ns |
+| Fanout / capacitance / routing DRC / antenna violations | 0 / 0 / 0 / 0 |
+| Slew violations, fast / slow / typical at 1.5 ns | 0 / 90 / 0 |
+| Worst reported slow-corner slew | 2.297081 ns |
 
-- `test-results`: both three-suite XML reports have no failures or skips;
-  formal-engine.log reports induction success. The artifact also contains
-  tb.fst and UART JSON records with 25-word firmware, vectors 00/55/A5/FF,
-  and 15359 / 23039 sampled cycles for 25 / 217 cycles per bit.
-- Python's 68-test result is in the CI log, not a retained Python JUnit file.
-  Fixed differential seeds are in the test source; first-divergence diagnostics
-  are generated on failure. Add a consolidated manifest and Python JUnit
-  output as a follow-up evidence-retention improvement.
-- `tt_submission`: GDS, OAS, LEF, routed netlist, nominal SPEF, metrics,
-  configuration, source identity, and PDK identity are present.
-- `GDS_logs`: final metrics and per-corner post-route reports are present.
-- `precheck_reports`: all nine tests passed; DRC XML reports are retained.
-- `gatelevel_test_results` and `physical-summary` are absent because
-  elaboration failed and acceptance was skipped. Never substitute RTL XML
-  for the missing gate-level evidence.
+The worst slew is below the library's 2.5074 ns default, but the current
+candidate enforces the stricter 1.5 ns target and therefore still fails its
+configured electrical gate. Do not silently change or suppress that target.
+The shortened run did not execute final layout DRC/LVS, precheck, gate-level
+regression, or release acceptance. Its original tool exit code was zero
+because it stopped before the checker steps; the local runner now separately
+rejects missing or violating routed metrics, and correctly rejects this run.
 
-See [Phase 2 implementation sequence](phase-2-plan.md) for closure priorities,
-throughput limits, and the proposed next capability gates.
+## Evidence history
 
-## Reproducibility and release gate
+- Scaffold `fe0a027`: [GDS, precheck, and gate-level passed](https://github.com/mcranny/protocol-emulator-asic/actions/runs/35389810547).
+  This tiny combinational baseline validates flow setup, not the engine.
+- Integrated `b8493a4`: [physical run](https://github.com/mcranny/protocol-emulator-asic/actions/runs/35414846616)
+  completed GDS and nine prechecks but gate-level elaboration lacked the IHP
+  UDP primitives. It had 55 slow-corner slew and 123 fanout violations;
+  standard-cell area was 235839 um2. The older checker did not enforce these
+  electrical metrics. This was not a release-quality physical pass.
+- The model-source fix includes `sg13cmos5l_udp.v`. All three pin suites passed
+  locally on that routed netlist and again on the `f3e605e` routed netlist,
+  including UART at both rates. Those results do not transfer signoff to a
+  later netlist and do not resolve electrical violations.
+- `f3e605e`: [first closure run](https://github.com/mcranny/protocol-emulator-asic/actions/runs/35429649064)
+  reduced fanout violations to three but retained 55 slow-corner slew
+  violations. `c22a3d4` added a post-antenna repair pass and tightened slew;
+  its results are above. Neither candidate is accepted.
+
+Failed and cancelled runs remain visible as history; neither supplies passing
+acceptance evidence. Experiment details belong with the draft closure PR,
+not in the product requirements or the Phase 2 feature list.
+
+## Verification scope and retained artifacts
+
+Core differential tests compare more than 26,000 system cycles, including
+twelve deterministic random seeds. Pin-level tests independently decode both
+UART rates and test concurrent SPI traffic, starvation, and interruption safety.
+See [verification](verification.md) for proof assumptions and coverage limits.
+
+The release workflow retains Python JUnit, both RTL XML reports, formal logs,
+waveforms, random programs/stimuli, assembled UART firmware, and source/tool/
+checksum manifests. Gate-level evidence additionally identifies the routed
+netlist and primitive models. The physical checker rejects missing or violating
+slew, fanout, capacitance, geometry, timing, test, and provenance evidence.
+It requires all nine prechecks and the three named gate-level suites.
+
+Gate-level simulation here is functional routed-netlist simulation; it does
+not replace extracted STA with a claim of delay-annotated simulation.
+
+## Local work and final release gate
+
+Use the [local build instructions](local-build.md) for iterative optimization.
+Routine pushes run functional and documentation CI. Expensive GDS workflows
+are **manual**, to avoid rebuilding the chip for documentation or intermediate
+experiment pushes. The full acceptance requirement has not changed.
+
+After local closure, dispatch the full workflow on the exact candidate:
+
+```sh
+gh workflow run gds.yaml --repo mcranny/protocol-emulator-asic --ref BRANCH
+gh run list --repo mcranny/protocol-emulator-asic --workflow gds.yaml
+```
+
+Confirm that the resulting run's head SHA is the intended source. Require
+functional, GDS, precheck, gate-level, and acceptance jobs to pass together.
+After any merge, validate the final release revision rather than assuming the
+branch's earlier evidence automatically proves the merged commit.
 
 Direct actions and CMOS5L support tools are pinned. LibreLane is 3.1.0.dev3;
-the pinned action installs IHP-Open-PDK revision
-`2bbec755dc67ca3db0261c3d6163e15735d66710`. Nested actions and some dependencies
-remain dynamically resolved; this is not a fully hermetic toolchain.
+IHP-Open-PDK is `2bbec755dc67ca3db0261c3d6163e15735d66710`. Nested actions and
+some dependencies remain dynamically resolved; CI is not fully hermetic.
 
-The gate-level source list now includes the pinned PDK's UDP primitives.
-All three suites passed locally on the original b8493a4 routed netlist after
-that source-list fix; this does not resolve its electrical violations.
-
-The strengthened release workflow runs functional verification within the
-physical workflow, retains provenance/checksum manifests, and rejects slew,
-fanout, and capacitance violations at every required corner. It also requires
-the configured 6x4 footprint, all nine prechecks, the three named gate-level
-suites, core suites, Python results, and induction success. These improvements
-supersede the checker/retention gaps recorded in the historical audit above.
-
-Download the same run's artifacts using the directory names below (including
-test-results as functional, tt_submission as submission, and both manifests),
-then run with the exact workflow head SHA:
+Download artifacts from the same run to the paths below, then independently
+check them with the exact workflow head SHA:
 
 ```sh
 python tools/check_physical.py \
@@ -138,12 +135,7 @@ python tools/check_physical.py \
   --formal-log functional/build/formal-engine.log
 ```
 
-The checker rejects absent timing corners, unconstrained-path sentinel values,
-negative slack, physical violations, missing tests, failures, and skipped tests.
-Its inputs must come from the same run and source commit; confirm the workflow
-head SHA and submission commit_id.json before interpreting its summary.
-
-Retain the submission's pdk.json, resolved.json, commit_id.json, metrics, GDS,
-netlist, and regression results with the release. V1 cannot be tagged until all
-required checks pass. GitHub Pages is optional and opt-in through the repository
-variable ENABLE_GDS_VIEWER after Pages configuration.
+Here `functional` is the `test-results` artifact, and `submission` is the
+`tt_submission` artifact. Retain matching PDK/config/source identities, GDS,
+netlist, SPEF, metrics, reports, firmware, and test results with the release.
+Do not tag V1 until every mandatory gate passes. GitHub Pages remains optional.
