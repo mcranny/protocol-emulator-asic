@@ -34,8 +34,14 @@ python3 tools/local_flow.py \
 
 `route` runs synthesis, placement, clock tree, routing, extraction, and final
 STA, stopping before the expensive layout verification steps. It is an
-optimization checkpoint, **not** a passing release gate. Inspect all per-corner
-electrical and timing metrics even when this shortened command exits zero.
+optimization checkpoint, **not** a passing release gate. The runner additionally
+checks routed electrical, timing, annotation, antenna, and routing-DRC metrics;
+missing or violating metrics cause exit code 2 even when LibreLane exits zero.
+Recheck an existing output without rebuilding with:
+
+```sh
+python3 tools/local_flow.py --check-only --output /tmp/protocol-route-01
+```
 Use `--stage full` with a fresh output directory for the complete Classic GDS
 flow, including its enabled DRC/LVS/checker steps. Neither mode runs Tiny
 Tapeout precheck or this repository's gate-level and functional regressions.

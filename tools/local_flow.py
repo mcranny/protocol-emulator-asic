@@ -5,6 +5,7 @@ Local results are development evidence, not the complete V1 release gate.
 import argparse
 import hashlib
 import json
+import math
 from pathlib import Path
 import shutil
 import subprocess
@@ -65,18 +66,57 @@ def inside(stage, threads):
     return subprocess.call(command)
 
 
+def route_issues(destination):
+    """Check the shortened flow's metrics; deliberately not release acceptance."""
+    path = destination / "src/runs/local/final/metrics.json"
+    try:
+        metrics = json.loads(path.read_text())
+    except (OSError, ValueError) as error:
+        return [f"missing/invalid routed metrics: {error}"]
+    if not isinstance(metrics, dict):
+        return ["invalid routed metrics object"]
+    zero = ["route__drc_errors", "route__antenna_violation__count"]
+    slack = []
+    for rule in ("slew", "fanout", "cap"):
+        base = f"design__max_{rule}_violation__count"
+        zero.append(base)
+        zero.extend(f"{base}__corner:{corner}" for corner in
+                    ("nom_fast_1p32V_m40C", "nom_slow_1p08V_125C", "nom_typ_1p20V_25C"))
+    for corner in ("nom_fast_1p32V_m40C", "nom_slow_1p08V_125C", "nom_typ_1p20V_25C"):
+        zero.append(f"timing__unannotated_net_filtered__count__corner:{corner}")
+        for kind in ("setup", "hold"):
+            for suffix in ("", "_r2r"):
+                slack.append(f"timing__{kind}{suffix}__ws__corner:{corner}")
+                zero.append(f"timing__{kind}{suffix}_vio__count__corner:{corner}")
+    issues = []
+    for key in zero + slack:
+        value = metrics.get(key)
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+            issues.append(f"missing/invalid metric: {key}")
+        elif (key in zero and value != 0) or (key in slack and not 0 <= value < 1e6):
+            issues.append(f"{key} = {value}")
+    return issues
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, default=Path.cwd())
     parser.add_argument("--pdk-root", type=Path)
     parser.add_argument("--tt-root", type=Path)
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--check-only", action="store_true", help="Assess existing local routed metrics without rebuilding")
     parser.add_argument("--stage", choices=("route", "full"), default="route")
     parser.add_argument("--threads", type=int, default=4)
     parser.add_argument("--inside", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
     if args.threads < 1:
         parser.error("--threads must be positive")
+    if args.check_only:
+        if args.output is None:
+            parser.error("--check-only requires --output")
+        issues = route_issues(args.output)
+        print(json.dumps({"route_issues": issues, "release_acceptance": False}, indent=2))
+        return 2 if issues else 0
     if args.inside:
         return inside(args.stage, args.threads)
     if any(value is None for value in (args.pdk_root, args.tt_root, args.output)):
@@ -114,6 +154,12 @@ def main():
     print(f"Local {args.stage} build: {destination}\nLog: {destination / 'flow.log'}", flush=True)
     with (destination / "flow.log").open("w") as log:
         result = subprocess.call(command, stdout=log, stderr=subprocess.STDOUT)
+    manifest["tool_exit_code"] = result
+    issues = route_issues(destination) if result == 0 else ["physical tool execution failed"]
+    manifest["route_issues"] = issues
+    if result == 0 and issues:
+        result = 2
+        print("\n".join(issues), flush=True)
     manifest["exit_code"] = result
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
     print(f"Build exit code: {result}. Local output does not establish release acceptance.")

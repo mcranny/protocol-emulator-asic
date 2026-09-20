@@ -29,6 +29,32 @@ be compared directly with counts under the earlier library limits. Positive
 setup/hold slack is not electrical signoff or an Fmax measurement. Available
 placement area is not a guarantee of equivalent capacity for new features.
 
+## Local closure checkpoint
+
+The native ARM64 LibreLane 3.1.0.dev3 container completed synthesis through
+routing, extraction, and final STA locally. Physical inputs match draft
+commit `3056a35`; the captured manifest records the earlier `c22a3d4` plus
+dirty inputs, with hashes identifying the exact configuration. This is
+development evidence, not clean-checkout release acceptance.
+
+Explicit nominal layer/via RC initialization improved the repair path:
+
+| Local extracted result | Value |
+| --- | --- |
+| Standard-cell area / utilization | 242867 um2 / 26.9129% |
+| Worst setup / hold slack | +21.217341 / +0.106257 ns |
+| Fanout / capacitance / routing DRC / antenna violations | 0 / 0 / 0 / 0 |
+| Slew violations, fast / slow / typical at 1.5 ns | 0 / 90 / 0 |
+| Worst reported slow-corner slew | 2.297081 ns |
+
+The worst slew is below the library's 2.5074 ns default, but the current
+candidate enforces the stricter 1.5 ns target and therefore still fails its
+configured electrical gate. Do not silently change or suppress that target.
+The shortened run did not execute final layout DRC/LVS, precheck, gate-level
+regression, or release acceptance. Its original tool exit code was zero
+because it stopped before the checker steps; the local runner now separately
+rejects missing or violating routed metrics, and correctly rejects this run.
+
 ## Evidence history
 
 - Scaffold `fe0a027`: [GDS, precheck, and gate-level passed](https://github.com/mcranny/protocol-emulator-asic/actions/runs/35389810547).

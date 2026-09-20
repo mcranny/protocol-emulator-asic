@@ -42,3 +42,54 @@ def test_dependency_must_match_clean_pinned_revision(monkeypatch, revision, dirt
     monkeypatch.setattr(flow, "output", lambda *args, **kwargs: revision if "rev-parse" in args else dirty)
     with pytest.raises(ValueError):
         flow.verify_checkout(Path("unused"), flow.PDK_REV)
+
+
+def routed_metrics(tmp_path):
+    import json
+    metrics = {"route__drc_errors": 0, "route__antenna_violation__count": 0}
+    corners = ("nom_fast_1p32V_m40C", "nom_slow_1p08V_125C", "nom_typ_1p20V_25C")
+    for rule in ("slew", "fanout", "cap"):
+        metrics[f"design__max_{rule}_violation__count"] = 0
+        for corner in corners:
+            metrics[f"design__max_{rule}_violation__count__corner:{corner}"] = 0
+    for corner in corners:
+        metrics[f"timing__unannotated_net_filtered__count__corner:{corner}"] = 0
+        for kind in ("setup", "hold"):
+            for suffix in ("", "_r2r"):
+                metrics[f"timing__{kind}{suffix}__ws__corner:{corner}"] = 1
+                metrics[f"timing__{kind}{suffix}_vio__count__corner:{corner}"] = 0
+    path = tmp_path / "src/runs/local/final/metrics.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps(metrics))
+    return path, metrics
+
+
+def test_routed_diagnostic_accepts_complete_clean_metrics(tmp_path):
+    routed_metrics(tmp_path)
+    assert flow.route_issues(tmp_path) == []
+
+
+@pytest.mark.parametrize("bad", [None, True, "0", 1, -1, float("nan"), float("inf")])
+def test_routed_diagnostic_rejects_invalid_electrical_metrics(tmp_path, bad):
+    import json
+    path, metrics = routed_metrics(tmp_path)
+    metrics["design__max_slew_violation__count__corner:nom_slow_1p08V_125C"] = bad
+    path.write_text(json.dumps(metrics))
+    assert flow.route_issues(tmp_path)
+
+
+def test_routed_diagnostic_rejects_missing_file(tmp_path):
+    assert flow.route_issues(tmp_path)
+
+
+@pytest.mark.parametrize("key", [
+    "timing__hold__ws__corner:nom_fast_1p32V_m40C",
+    "timing__setup_r2r__ws__corner:nom_slow_1p08V_125C",
+    "route__drc_errors",
+])
+def test_routed_diagnostic_rejects_missing_required_metrics(tmp_path, key):
+    import json
+    path, metrics = routed_metrics(tmp_path)
+    del metrics[key]
+    path.write_text(json.dumps(metrics))
+    assert flow.route_issues(tmp_path)
