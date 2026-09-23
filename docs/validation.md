@@ -2,17 +2,21 @@
 
 ## Current status
 
-V1 is implemented but **not released**. Functional verification passes; routed
-electrical closure is still in progress in [PR #9](https://github.com/mcranny/protocol-emulator-asic/pull/9).
-The primitive-model fix and stronger release checks are merged. Development
-merges are not physical acceptance, and no FPGA or silicon operation is claimed.
+V1 is implemented and functional verification passes. The latest local
+candidate from [PR #9](https://github.com/mcranny/protocol-emulator-asic/pull/9)
+passes routed electrical checks at 1.5 ns. Full same-revision physical and
+gate-level acceptance is mandatory before release. See
+[published releases](https://github.com/mcranny/protocol-emulator-asic/releases)
+for accepted source revisions, workflow runs, and retained artifacts.
+Development merges are not physical acceptance; no FPGA or silicon operation
+is claimed.
 
-Latest reviewed physical source: `c22a3d440bb1bf25fe691259c937f95bc4e683c3`.
+Last failing CI physical source: `c22a3d440bb1bf25fe691259c937f95bc4e683c3`.
 [Run 35460188674](https://github.com/mcranny/protocol-emulator-asic/actions/runs/35460188674)
 passed its functional job and failed the enforced slew checks. Its precheck,
 gate-level, and final acceptance jobs were consequently skipped.
 
-| Latest candidate metric | Result |
+| Last failing CI candidate metric | Result |
 | --- | --- |
 | Python tests | 176 passed |
 | RTL suites | 3 core differential + 3 pin-level passed |
@@ -29,7 +33,7 @@ be compared directly with counts under the earlier library limits. Positive
 setup/hold slack is not electrical signoff or an Fmax measurement. Available
 placement area is not a guarantee of equivalent capacity for new features.
 
-## Local closure checkpoint
+## Earlier local closure checkpoint
 
 The native ARM64 LibreLane 3.1.0.dev3 container completed synthesis through
 routing, extraction, and final STA locally. Physical inputs match draft
@@ -54,6 +58,29 @@ The shortened run did not execute final layout DRC/LVS, precheck, gate-level
 regression, or release acceptance. Its original tool exit code was zero
 because it stopped before the checker steps; the local runner now separately
 rejects missing or violating routed metrics, and correctly rejects this run.
+
+## Local electrical closure, 2026-09-23
+
+The 55% global-route slew repair margin accommodates the measured difference
+between estimated and extracted wire capacitance; the final transition limit
+remains 1.5 ns. See the [diagnosis](physical-closure.md#extracted-load-diagnosis).
+The local route/extraction/STA checkpoint `protocol-v1-route-01` passed:
+
+| Local extracted result | Value |
+| --- | --- |
+| Python tests / RTL suites / lint / formal / synthesis | 205 / 6 / passed / passed / passed |
+| Standard-cell area / utilization | 244113 um2 / 27.0510% |
+| Worst setup / hold slack | +21.053364 / +0.106182 ns |
+| Slew / fanout / capacitance violations, all corners | 0 / 0 / 0 |
+| Routing DRC / antenna violations | 0 / 0 |
+| Unannotated signal nets, all corners | 0 |
+
+The manifest records base `88f5210` plus dirty input hashes. Physical config
+SHA-256: `38bf9b73fb2e324455dc9cd94eeaa75fe819dedf406c5b42ca561155153b9e92`.
+This establishes local routed closure, not release acceptance. Final layout
+DRC/LVS, precheck, and matching gate-level tests require the full workflow on
+the final release revision. The release checker rejects changed or missing
+transition constraints even when electrical violation counts are zero.
 
 ## Evidence history
 

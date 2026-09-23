@@ -112,3 +112,33 @@ Resume from this draft, using the local runner on main. Inspect the slow-corner
 drivers and route-vs-extraction load estimates before choosing the next repair.
 Keep the source/input hashes with each experiment and require a complete
 same-revision acceptance run before release.
+
+## Extracted-load diagnosis
+
+Read-only probes of the saved routed database reproduce the 90 violating pins
+on 27 distinct nets. The worst nets have low fanout but long wires driven by
+weak complex gates. Re-estimating global-route parasitics on the same database
+substantially understates their final extracted load:
+
+| Driver | Estimated load / slew | Extracted load / slew |
+| --- | --- | --- |
+| `_09426_/Y` | 0.075443 pF / 1.152347 ns | 0.146151 pF / 2.177641 ns |
+| `_09301_/Y` | 0.052732 pF / 0.970481 ns | 0.113211 pF / 2.026532 ns |
+
+The worst driver, `_09159_/Y`, drives one receiver roughly 430 um away. Its
+estimated slew is 1.167992 ns, just below the previous repair threshold of
+1.2 ns (20% margin on 1.5 ns), while extracted slew reaches 2.296370 ns.
+Positive path slack and legal fanout therefore do not explain away the failure.
+
+The next candidate increases the global-route repair slew margin to 55%,
+giving a 0.675 ns optimization threshold to accommodate the observed load
+underestimate. The nominal RC values and the final 1.5 ns signoff target remain
+unchanged. The release checker also explicitly rejects an absent or changed
+transition target, even when reported violation counts are zero. Only a new
+extracted run and complete matching acceptance can validate this candidate.
+
+The resulting local route/extraction/STA checkpoint passed: zero slew, fanout,
+capacitance, routing-DRC, antenna, and unannotated-signal violations at all
+required corners. Worst setup/hold slack is +21.053364 / +0.106182 ns; cell
+area is 244113 um2 (27.0510%). Full same-revision release acceptance remains
+mandatory; see the [validation record](validation.md).

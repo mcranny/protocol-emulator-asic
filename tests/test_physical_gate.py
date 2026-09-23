@@ -28,7 +28,7 @@ def evidence(tmp_path):
         for corner in gate.CORNERS:
             metrics[f"{key}__corner:{corner}"] = 0
     config = {"CLOCK_PERIOD": 40, "STA_CORNERS": list(gate.CORNERS),
-              "DIE_AREA": gate.DIE_AREA.copy()}
+              "DIE_AREA": gate.DIE_AREA.copy(), "MAX_TRANSITION_CONSTRAINT": 1.5}
     pre = tmp_path / "precheck.xml"
     pre.write_text("<testsuite>" + "<testcase/>" * 9 + "</testsuite>")
     gl = tmp_path / "gatelevel.xml"
@@ -39,6 +39,17 @@ def evidence(tmp_path):
 
 def test_complete_evidence(tmp_path):
     assert gate.check(*evidence(tmp_path))["passing_tests"]["gatelevel"] == 3
+
+
+@pytest.mark.parametrize("limit", [None, 2.5074, "1.5", True, float("nan")])
+def test_zero_violations_cannot_hide_changed_transition_limit(tmp_path, limit):
+    metrics, config, pre, gl = evidence(tmp_path)
+    if limit is None:
+        del config["MAX_TRANSITION_CONSTRAINT"]
+    else:
+        config["MAX_TRANSITION_CONSTRAINT"] = limit
+    with pytest.raises(ValueError, match="transition target"):
+        gate.check(metrics, config, pre, gl)
 
 
 @pytest.mark.parametrize("failure", ["missing", "negative", "sentinel", "corner", "drc", "xml", "skip", "area"])

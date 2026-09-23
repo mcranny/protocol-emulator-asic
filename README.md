@@ -10,10 +10,13 @@ transmission is implemented in 25 instructions of firmware. Target system clock:
 
 ## Status
 
-Python, RTL differential, pin-level UART/SPI, and formal safety checks are
-passing in functional CI. The gate-level model-source fix and strict release
-checks are merged. Electrical closure remains in [draft PR #9](https://github.com/mcranny/protocol-emulator-asic/pull/9);
-V1 is **not released**. See [measured results and remaining gates](docs/validation.md).
+Python, RTL differential, pin-level UART/SPI, and formal safety checks pass.
+The local routed candidate passes all electrical checks at the configured
+1.5 ns transition limit. Full physical and gate-level acceptance on the final
+revision is required before release; local routing alone is insufficient.
+See [measured results and acceptance requirements](docs/validation.md) and
+[published releases](https://github.com/mcranny/protocol-emulator-asic/releases)
+for accepted revisions and artifacts.
 No silicon or FPGA operation is claimed.
 
 ## Use

@@ -39,6 +39,8 @@ def passing_xml(path, required_names=None, minimum=1):
 def check(metrics, config, precheck, gatelevel):
     if config.get("CLOCK_PERIOD") != 40:
         raise ValueError("release target must be 40 ns")
+    if config.get("MAX_TRANSITION_CONSTRAINT") != 1.5:
+        raise ValueError("release transition target must be 1.5 ns")
     if config.get("DIE_AREA") != DIE_AREA:
         raise ValueError("release footprint must remain 6x4 tiles")
     if set(config.get("STA_CORNERS", [])) != set(CORNERS):
