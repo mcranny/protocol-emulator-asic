@@ -33,8 +33,9 @@ host jitter but cannot correct a sustained bandwidth deficit.
 
 ## Gate 0: close V1 before expanding functionality
 
-The primitive-model and release-check fixes are merged. Electrical closure,
-same-revision full physical acceptance, and release publication remain.
+The primitive-model and release-check fixes are merged. Local routed
+electrical checks pass; same-revision full physical acceptance and release
+publication are the required exit gates.
 Use the [validation record](validation.md) as the single source of current
 measurements and blockers; do not add Phase 2 features to the closure PR.
 
@@ -72,8 +73,8 @@ of commands or faults can cause conflicting output drive. Preserve V1 timing
 for programs intended to remain compatible.
 
 Exit: simultaneous TX/RX under worst-case host load, byte-exact scoreboards,
-no unintended timing interference, and renewed 6x4 physical closure. Current
-26.13% cell utilization is encouraging, not proof that a second engine fits.
+no unintended timing interference, and renewed 6x4 physical closure. Local
+27.0510% cell utilization is encouraging, not proof that a second engine fits.
 
 ## Phase 2C: deterministic debugging and protocol expansion
 
