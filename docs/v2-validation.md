@@ -17,8 +17,11 @@ separate. The candidate contract is in [v2-contract.md](v2-contract.md).
 - Formal induction proves the documented core safety properties with arbitrary
   instruction words. This does not establish complete protocol correctness.
 - Mutation checks require actual assertion failures for dropped RX records,
-  incorrect packed TX ordering and unsafe open-drain output enabling. Compile
+  incorrect packed TX ordering, inverted wait edges, shifted capture timestamps
+  and unsafe open-drain output enabling. Compile
   failures, missing results and skipped tests do not count as detections.
+- A [standalone capture candidate](v2-capture.md) has differential, model and
+  induction tests. It is not connected to the V2 top or host transport yet.
 
 ## Physical feasibility observations
 
@@ -46,8 +49,8 @@ The ISA remains unfrozen. Required work includes complete I2C timing/filtering
 checks, wider protocol error/phase/abort cases, top-level isolation and burst
 atomicity proofs, triggered capture, scheduled faults, JSON/VCD export, both
 replay forms, the custom protocol demonstration and runnable user workflows.
-Sampling-edge and capture-timestamp mutation checks must be added with their
-corresponding acceptance suites.
+End-to-end sampling and capture mutation coverage must also be retained when
+the standalone capture block is integrated with the engines and host.
 
 Before changed hardware is considered complete, full physical and representative
 routed-netlist acceptance must pass. The final release also needs all required
