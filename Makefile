@@ -1,4 +1,4 @@
-.PHONY: test python-test rtl-test lint formal synth
+.PHONY: test python-test rtl-test lint formal synth v2-test v2-formal
 
 test: python-test lint rtl-test formal
 
@@ -20,3 +20,16 @@ formal:
 synth:
 	mkdir -p build
 	yosys -Q -T -q -p 'read_verilog src/*.v; synth -top tt_um_mcranny_protocol_emulator; stat' -l build/synthesis.log
+
+# Candidate checks are explicit until V2 replaces the accepted top-level design.
+v2-test: python-test
+	verilator --lint-only --top-module protocol_engine_v2 src/v2_engine.v
+	verilator --lint-only --top-module tt_um_mcranny_protocol_emulator_v2 src/*.v
+	$(MAKE) -C test -f Makefile.v2
+	$(MAKE) -C test -f Makefile.v2pins
+	$(MAKE) v2-formal
+
+v2-formal:
+	mkdir -p build
+	yosys -Q -T -q -s formal/v2_engine.ys -l build/formal-v2-engine.log
+	@grep 'Induction step proven: SUCCESS' build/formal-v2-engine.log

@@ -23,6 +23,16 @@ jobs:
         run: make formal
       - name: RTL simulation
         run: make -C test
+      - name: V2 candidate lint and core differential simulation
+        run: |
+          verilator --lint-only --top-module tt_um_mcranny_protocol_emulator_v2 src/*.v
+          make -C test -f Makefile.v2
+      - name: V2 candidate formal safety
+        run: make v2-formal
+      - name: V2 candidate pin-driven protocol tests
+        run: make -C test -f Makefile.v2pins
+      - name: V2 candidate mutation sensitivity
+        run: python tools/v2_mutations.py
       - name: Record evidence provenance
         if: always()
         run: python tools/collect_evidence.py --kind rtl --output build/rtl-evidence.json
@@ -39,6 +49,10 @@ jobs:
             test/results*.xml
             test/output/*
             build/formal-engine.log
+            build/formal-v2-engine.log
             build/python-results.xml
             build/rtl-evidence.json
+            build/v2-mutations/results.json
+            build/v2-mutations/*/test.log
+            build/v2-mutations/*/results.xml
             test/sim_build/core/*.fst

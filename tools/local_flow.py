@@ -134,6 +134,8 @@ def main():
     destination.mkdir(parents=True, exist_ok=False)  # Never overwrite a previous run.
     (destination / "src").mkdir()
     files = [source / "info.yaml", source / "src/config.json", *sorted((source / "src").glob("*.v"))]
+    if (source / "candidate-inputs.json").is_file():
+        files.append(source / "candidate-inputs.json")
     manifest = {
         "source_commit": output("git", "rev-parse", "HEAD", cwd=source),
         "source_dirty": bool(output("git", "status", "--porcelain", cwd=source)),

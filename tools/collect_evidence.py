@@ -41,7 +41,9 @@ def collect(kind):
                 "test/sim_build/core/*.fst", "build/*-engine.log",
                 "build/python-results.xml", "build/synthesis.log", "src/*.v",
                 "src/config.json", "info.yaml", "test/requirements.txt",
-                "formal/*.ys", "examples/*.asm", "test/test*.py"]
+                "formal/*.ys", "examples/*.asm", "test/test*.py",
+                "host/protocol_emulator/*.py", "host/protocol_emulator/v2/*.py",
+                "physical/v2/*", "tools/v2_*.py"]
     paths = [path for pattern in patterns for path in Path(".").glob(pattern)]
     if kind == "gatelevel":
         paths += [Path("test/gate_level_netlist.v"), Path("tt_submission/pdk.json"),
