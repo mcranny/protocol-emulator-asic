@@ -1,0 +1,8 @@
+read_verilog -formal src/v2_capture.v
+prep -top protocol_capture_v2
+flatten
+memory_map
+opt
+async2sync
+dffunmap
+sat -seq 4 -tempinduct -maxsteps 16 -set-assumes -prove-asserts -verify
