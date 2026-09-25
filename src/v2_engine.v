@@ -38,18 +38,22 @@ module protocol_engine_v2 (
     reg timed_out, interrupted, pull_empty;
     reg [1:0] link_depth;
     reg [5:0] link0, link1;
+    // Execution and stopped-engine host readback share one memory read port.
+    // The integration top rejects host reads of a running engine nonfatally.
+    wire [5:0] memory_read_address = running ? pc : program_addr;
+    wire [23:0] memory_read_data = program_mem[memory_read_address];
 `ifdef FORMAL
     // Overapproximate every fetched instruction independently. FIFO/drive
     // safety must hold even for arbitrary instruction sequences; program
     // storage correctness is covered by the separate readback/differential tests.
     (* anyseq *) wire [23:0] word;
 `else
-    wire [23:0] word = program_mem[pc];
+    wire [23:0] word = memory_read_data;
 `endif
     wire [3:0] op = word[23:20], sub = word[19:16];
     wire [15:0] selected = word[16] ? r1 : r0;
     wire [7:0] active_events = events | event_set;
-    assign program_read = program_mem[program_addr];
+    assign program_read = memory_read_data;
     assign program_valid = valid_words[program_addr];
     assign program_legal = legal(program_data);
     assign start_ready = !running && valid_words[0];

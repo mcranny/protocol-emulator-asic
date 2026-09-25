@@ -76,6 +76,17 @@ async def v2_pin_transport_safety(dut):
     await load(h, 1, "DRIVE 2, 2\nJMP 1")
     await h.request(0x20, payload=3)
     assert int(dut.uio_oe.value) == 1
+    previous_errors = int(dut.uo_out.value) & 8
+    # Running-engine readback is busy, including an unwritten valid address.
+    # Host addresses must never redirect execution through its shared read port.
+    for address in (0, 1, 63, 128, 191):
+        await h.request(2, addr=address, reject=True)
+        assert int(dut.uo_out.value) & 14 == 6 | previous_errors
+        assert int(dut.uio_out.value) == 1 and int(dut.uio_oe.value) == 1
+    await h.request(4, addr=128)
+    await load(h, 1, "\n".join(f"LI {i % 2}, {i * 1013}" for i in range(63)) + "\nHALT")
+    assert await h.request(6) == 1
+    assert int(dut.uio_out.value) == 1 and int(dut.uio_oe.value) == 1
     await h.request(0x21, payload=2, reject=True)
     await h.exchange(bits=39)
     await ClockCycles(dut.clk, 10)
@@ -91,6 +102,34 @@ async def v2_pin_transport_safety(dut):
     result = await h.request(0x13, addr=128)
     assert result & 65535 == 0x5500
     assert await h.request(8, addr=128) >> 5 == 0
+
+    # Check pulse widths during all 64 writes and readbacks of the other
+    # engine. Constant held outputs alone would not detect instruction stalls.
+    await load(h, 0, "DRIVE 0, 1\nSET 1, 1\nDELAY 4\nSET 1, 0\nDELAY 4\nJMP 1")
+    await h.request(3)
+    finished = [False]
+    transitions = []
+    async def monitor_isolation():
+        previous = int(dut.uio_out.value) & 1
+        last = None
+        cycle = 0
+        while not finished[0]:
+            await RisingEdge(dut.clk)
+            await Timer(1, unit="ns")
+            assert int(dut.uio_oe.value) == 1
+            value = int(dut.uio_out.value) & 1
+            if value != previous:
+                if last is not None:
+                    assert cycle - last == (5 if previous else 6)
+                transitions.append(cycle)
+                last, previous = cycle, value
+            cycle += 1
+    observer = cocotb.start_soon(monitor_isolation())
+    await load(h, 1, "\n".join(f"LI {i % 2}, {65535 - i * 997}" for i in range(63)) + "\nHALT")
+    finished[0] = True
+    await observer
+    assert len(transitions) > 100
+    await h.request(4)
 
 
 @cocotb.test()
@@ -244,8 +283,7 @@ async def v2_bounded_firmware_playback(dut):
     cocotb.start_soon(Clock(dut.clk, 40, unit="ns").start())
     await reset(dut)
     h = Host(dut)
-    await h.request(0x21, payload=3)
-    await h.request(0x22, payload=2)
+    await h.request(0x21, payload=0x0203)
     events = [OutputEvent(0, 1, 3), OutputEvent(1, 1, 1), OutputEvent(2, 0, 3),
               OutputEvent(65539, 1, 1), OutputEvent(65542, 0, 0)]
     end = 65545

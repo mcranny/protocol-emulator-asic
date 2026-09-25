@@ -125,7 +125,7 @@ transport exception.
 | Command | Operation |
 |---|---|
 | 00 | NOP |
-| 01 / 02 | Write / read selected program word |
+| 01 / 02 | Write / read selected program word; selected engine must be stopped |
 | 03 / 04 / 05 | Start / stop / state reset selected engine |
 | 06 | Status: running bit 0, engine/shared error bits shifted left one |
 | 07 | V1-shaped single-byte TX push |
@@ -155,8 +155,12 @@ explicit new read. Pipelined reads account for the preceding consumed record.
 `protocol_emulator.v2.host.connect()` probes the version and selects the V1 or
 V2 backend. Old host clients are not promised binary compatibility with V2.
 The Python API supports engine-specific loading/readback, configuration,
-control and batched TX/RX. A hardware-independent V2 CLI/scenario transport
-remains required before release.
+control and batched TX/RX. Program readback and instruction execution share
+one read port per engine. Readback of a running engine rejects nonfatally;
+host access to a stopped engine never stalls the other engine. Stop the
+selected engine before either loading or reading its firmware.
+The bounded [scenario CLI](v2-scenarios.md) runs simulation; complete hardware
+scenario execution remains required before release.
 
 ## Verification status and limits
 

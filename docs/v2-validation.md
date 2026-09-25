@@ -47,6 +47,20 @@ capacity for capture: the combined implementation must be routed again.
 The 64-word firmware images fit the required protocol sketches; both combined
 I2C roles use all 64 words. A 128-word implementation has not been selected.
 
+A clean baseline full build at `b6b534b` subsequently passed local routed
+electrical checks, Magic DRC and LVS. Its functional netlist is byte-identical
+to the earlier route that passed all seven baseline routed-netlist suites.
+KLayout and Tiny Tapeout prechecks are still pending for that baseline.
+
+The first integrated capture route at `08cb243` failed detailed placement
+after clock-tree insertion and hold repair. Utilization before hold repair was
+79.8675%; repair inserted 7,336 delay cells, after which 274 instances could not
+be legalized within the configured displacement limits. A wider-displacement
+experiment is local and unaccepted. Sharing each engine's instruction-fetch
+and stopped-engine host readback port reduces duplicated memory-selection
+logic; combined physical validation must be repeated for that implementation.
+No footprint, clock, memory depth or electrical limit has been relaxed.
+
 ## Remaining acceptance work
 
 The ISA remains unfrozen. Required work includes complete I2C timing/filtering
