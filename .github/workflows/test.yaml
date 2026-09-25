@@ -33,7 +33,7 @@ jobs:
         run: make -C test -f Makefile.v2pins
       - name: V2 candidate mutation sensitivity
         run: python tools/v2_mutations.py
-      - name: Standalone V2 capture candidate
+      - name: V2 capture differential and formal checks
         run: make v2-capture-test
       - name: Record evidence provenance
         if: always()

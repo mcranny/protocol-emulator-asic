@@ -36,6 +36,11 @@ invalidates programs and clears ownership/watch configuration. Disable clears
 execution state and queues, retains program/configuration and errors, and does
 not resume execution automatically.
 
+The integrated capture candidate stores 32 timestamped 64-bit records without
+controlling engine execution. Its trigger, sampling, completion and readout
+contract is in [v2-capture.md](v2-capture.md). Combined physical acceptance is
+still required; the earlier dual-engine route did not contain capture.
+
 Ownership masks must be disjoint and can only be changed with both engines
 stopped. Input observation is shared. An open-drain mask must be a subset of
 ownership. A requested high on an open-drain pin produces high impedance;
@@ -127,12 +132,14 @@ transport exception.
 | 08 | TX level bits 4:0, RX level bits 9:5 |
 | 09 | Safe read-only version probe: `0x020240` |
 | 0A | Capabilities: `0x021010` = two engines, 16 TX, 16 RX |
+| 0B | Feature bits and capture capacity, currently `0x20001f` |
 | 10 / 11 / 12 | Push 1 / 2 / 3 packed TX bytes, low payload byte first |
 | 13 | Reserve one RX record for the next response |
 | 20 | Atomic START, payload engine mask 1..3 |
 | 21 | Ownership: owner low byte, open-drain next byte |
 | 22 / 23 | Configure watch 0 / 1: mask, value, edge mask in increasing byte order |
 | 24 | Configure wait-abort event mask, low two bits |
+| 30..37 | Capture control/status/readout; see [capture contract](v2-capture.md) |
 
 TX packed writes are all-or-nothing against the pre-edge FIFO level. Result
 bits 4:0 contain the pre-push level and bits 6:5 the accepted byte count.
@@ -163,7 +170,9 @@ overapproximated as an arbitrary word each cycle; reset is assumed on the
 initial sampled edge. This is stronger for these safety properties but does
 not prove program-storage correctness, complete protocol correctness or capture.
 Run `python tools/v2_mutations.py` to require that dropped RX data, incorrect
-packed-TX byte order and unsafe open-drain enabling are detected by the tests.
+packed-TX byte order, unsafe open-drain enabling, inverted wait edges and shifted
+capture timestamps are detected by the tests. Capture has separate induction
+and differential checks through `make v2-capture-test`.
 
 The pin-driven sustained-UART test sends 145 TX and receives 128 RX bytes with
 a 500 us service interval. Its largest service occupies 492 us, including
@@ -171,7 +180,7 @@ a 500 us service interval. Its largest service occupies 492 us, including
 byte/frame continuity, not physical host scheduling. The API requires its
 caller to schedule service; it makes no real-time Linux guarantee.
 
-Capture/replay, additional error/phase sweeps, remaining mutation coverage, the custom
+Scenario/replay, additional error/phase sweeps, integration mutation coverage, the custom
 protocol demonstration, full physical/precheck/gate-level acceptance, and the
 public release evidence package remain required. The candidate top is not
 selected by `info.yaml`, and existing V1 acceptance must not be presented as V2

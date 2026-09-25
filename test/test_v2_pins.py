@@ -4,7 +4,7 @@ from pathlib import Path
 
 import cocotb
 from cocotb.clock import Clock
-from cocotb.triggers import ClockCycles, Timer
+from cocotb.triggers import ClockCycles, RisingEdge, Timer
 from cocotb.utils import get_sim_time
 
 from test import Host, reset, capture, decode_uart
@@ -12,6 +12,19 @@ from protocol_emulator.v2.isa import assemble
 from protocol_emulator.v2.firmware import uart_rx, uart_tx, spi_target, spi_controller, i2c_controller, i2c_target
 from protocol_emulator.v2.peers import I2CTarget
 from protocol_emulator.v2.host import command_frame, tx_commands, parse_response
+
+
+async def capture_words(host):
+    status = await host.request(0x32)
+    assert not status & 1
+    count = status >> 6 & 63
+    requests = [command_frame(command, address=i) for i in range(count)
+                for command in (0x35, 0x36, 0x37)]
+    chunks = []
+    for offset in range(0, len(requests), 64):
+        chunks += await batch(host, requests[offset:offset + 64])
+    return status, [chunks[i] | chunks[i + 1] << 24 | chunks[i + 2] << 48
+                    for i in range(0, len(chunks), 3)]
 
 
 async def batch(host, requests, allow_empty=False):
@@ -75,6 +88,79 @@ async def v2_pin_transport_safety(dut):
     result = await h.request(0x13, addr=128)
     assert result & 65535 == 0x5500
     assert await h.request(8, addr=128) >> 5 == 0
+
+
+@cocotb.test()
+async def v2_capture_host_and_noninterference(dut):
+    cocotb.start_soon(Clock(dut.clk, 40, unit="ns").start())
+    waves = []
+    for enabled in (False, True):
+        await reset(dut)
+        h = Host(dut)
+        assert await h.request(11) == 0x20001F
+        await h.request(0x21, payload=1)
+        await load(h, 0, "DRIVE 0, 1\nMARK 1\nDELAY 8\nSET 1, 1\nDELAY 8\nSET 1, 0\nDELAY 8\nHALT")
+        if enabled:
+            await h.request(0x30, payload=0x0102)  # engine-0 marker
+            await h.request(0x35, reject=True)  # active readout is rejected nonfatally
+        wave = []
+        async def observe():
+            started = False
+            for _ in range(3000):
+                await RisingEdge(dut.clk)
+                await Timer(1, unit="ns")
+                running = int(dut.uo_out.value) >> 1 & 3
+                if running:
+                    started = True
+                if started:
+                    wave.append((int(dut.uio_out.value), int(dut.uio_oe.value), running))
+                    if not running:
+                        return
+            raise AssertionError("engine did not run and halt")
+        observer = cocotb.start_soon(observe())
+        await h.request(3)
+        await observer
+        waves.append(wave)
+        if enabled:
+            await h.request(0x31)
+            status, words = await capture_words(h)
+            assert status & 63 == 3 << 3 | 2
+            assert words[0] & 255 == 0x19  # running, marker, trigger
+            assert words[-1] & 0xFFFFFF == 0  # released and halted
+            assert words[0] >> 24 & 255 == 255
+            records = [(word >> 32, word >> 16 & 255, word >> 8 & 255) for word in words]
+            output_changes = [(cycle, out, oe) for i, (cycle, out, oe) in enumerate(records)
+                              if i == 0 or (out, oe) != records[i - 1][1:]]
+            assert [row[1:] for row in output_changes] == [(0, 1), (1, 1), (0, 1), (0, 0)]
+            assert output_changes[2][0] - output_changes[1][0] == 9
+    assert waves[0] == waves[1]
+
+    # A full trace freezes while execution continues, and a shared host error
+    # can itself trigger a later capture without losing the fault observation.
+    await reset(dut)
+    h = Host(dut)
+    await h.request(0x21, payload=1)
+    await load(h, 0, "DRIVE 0, 1\nSET 1, 1\nSET 1, 0\nJMP 1")
+    await h.request(0x30)
+    await h.request(3)
+    status, words = await capture_words(h)
+    assert status >> 6 == 32 and status & 7 == 6
+    assert await h.request(6) == 1
+    await h.request(4)
+    assert (await capture_words(h))[1] == words
+    await h.request(0x30, payload=3)
+    await h.exchange(bits=39)
+    await h.request(0x31)
+    status, words = await capture_words(h)
+    assert status & 7 == 2 and words[0] & 12 == 12
+    await h.request(0x30)
+    dut.ena.value = 0
+    await ClockCycles(dut.clk, 5)
+    dut.ena.value = 1
+    await ClockCycles(dut.clk, 5)
+    status, words = await capture_words(h)
+    assert status >> 3 & 7 == 7  # disabled captures remain diagnostic-only
+    assert status & 7 == 2 and words
 
 
 @cocotb.test()

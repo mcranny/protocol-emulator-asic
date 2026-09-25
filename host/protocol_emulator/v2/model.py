@@ -8,6 +8,7 @@ from dataclasses import dataclass
 
 from ..model import Model as V1Model, ADDRESS, ILLEGAL, OVERFLOW, FRAME
 from .isa import decode
+from .capture import Capture, Sample
 
 OWNERSHIP = 1 << 11
 FIRMWARE = 1 << 12
@@ -219,6 +220,7 @@ class Device:
     def __init__(self, capacity=128):
         self.engines = [Engine(capacity), Engine(capacity)]
         self.cycle = 0
+        self.capture = Capture()
 
     def configure(self, owners, open_drain=(0, 0)):
         if any(e.running for e in self.engines):
@@ -241,8 +243,23 @@ class Device:
         for engine in selected:
             engine.start()
 
-    def tick(self, pins=0, *, enable=True, reset=False, frame_error=False):
+    def tick(self, pins=0, *, enable=True, reset=False, frame_error=False,
+             capture_arm=None, capture_stop=False):
         self.cycle += 1
+        flags = (int(any(e.errors for e in self.engines)) << 2
+                 | sum(bool(e.marker) << i for i, e in enumerate(self.engines))
+                 | sum(bool(e.running) << (i + 4) for i, e in enumerate(self.engines)))
+        sample = Sample(pins, *self.pins, flags)
+        if reset:
+            self.capture.reset()
+        elif not enable:
+            self.capture.disable()
+        elif capture_arm is not None:
+            self.capture.arm(sample, *capture_arm)
+        elif capture_stop:
+            self.capture.stop()
+        else:
+            self.capture.tick(sample)
         for engine in self.engines:
             if reset:
                 engine.program = [None] * engine.capacity

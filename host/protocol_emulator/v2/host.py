@@ -3,7 +3,10 @@
 Packed TX and pipelined RX remove per-byte request/NOP round trips. RX data
 are committed only when the following complete frame has delivered the reply.
 """
+from dataclasses import asdict
+
 from ..host import DeviceError
+from .capture import Record
 from .isa import decode, encode
 
 VERSION = 0x020240
@@ -131,6 +134,62 @@ class Device:
             raise ValueError("invalid RX batch length")
         results = self.batch([command_frame(0x13, engine)] * count, allow_empty=True)
         return [(result & 255, result >> 8 & 255) for result in results if result is not None]
+
+    def capabilities(self):
+        self.check_version()
+        queues, features = self.batch([command_frame(10), command_frame(11)])
+        return {"host_version": 2, "isa_version": 2, "program_words": 64,
+                "engines": queues >> 16, "tx_depth": queues >> 8 & 255,
+                "rx_depth": queues & 255, "capture_depth": features >> 16,
+                "features": features & 65535}
+
+    def capture_arm(self, mode="immediate", mask=255):
+        modes = ("immediate", "pin", "marker", "error")
+        if mode not in modes or type(mask) is not int or not 0 <= mask <= 255:
+            raise ValueError("invalid capture trigger")
+        if not self.capabilities()["features"] & 1:
+            raise DeviceError("capture is not supported")
+        return self.request(0x30, value=mask << 8 | modes.index(mode))
+
+    def capture_stop(self):
+        return self.request(0x31)
+
+    def capture_read(self, *, allow_incomplete=False):
+        status = self.request(0x32)
+        armed, triggered, truncated = (bool(status & (1 << bit)) for bit in range(3))
+        reason_index, count = status >> 3 & 7, status >> 6 & 63
+        reasons = ("reset", "armed", "capturing", "stopped", "untriggered", "capacity", "timestamp", "disabled")
+        if armed:
+            raise DeviceError("stop capture before readout")
+        if reason_index >= len(reasons) or count > 32 or status >> 12:
+            raise DeviceError("invalid capture status")
+        complete = triggered and not truncated and reasons[reason_index] == "stopped"
+        if not complete and not allow_incomplete:
+            raise DeviceError("capture is incomplete")
+        times = self.batch([command_frame(0x33, address=i) for i in range(4)])
+        end = times[0] | times[1] << 24
+        trigger = times[2] | times[3] << 24
+        requests = [command_frame(command, address=i) for i in range(count)
+                    for command in (0x35, 0x36, 0x37)]
+        chunks = []
+        for offset in range(0, len(requests), 64):
+            chunks.extend(self.batch(requests[offset:offset + 64]))
+        records = []
+        for offset in range(0, len(chunks), 3):
+            word = chunks[offset] | chunks[offset + 1] << 24 | chunks[offset + 2] << 48
+            records.append(Record(word >> 32, word >> 24 & 255, word >> 16 & 255,
+                                  word >> 8 & 255, word & 255))
+        if (end > 0xFFFFFFFF or trigger > end or bool(records) != triggered
+                or (records and (records[0].cycle != trigger or not records[0].flags & 8))
+                or any(r.flags & 8 for r in records[1:])
+                or any(r.cycle > end for r in records)
+                or any(a.cycle >= b.cycle for a, b in zip(records, records[1:]))):
+            raise DeviceError("inconsistent capture readout")
+        return {"schema": 1, "clock_hz": 25_000_000, "sampling": "before_execution",
+                "timestamp_origin": "arm", "maximum_cycle": 0xFFFFFFFF,
+                "end_cycle": end, "trigger_cycle": trigger if triggered else None,
+                "complete": complete, "truncated": truncated, "reason": reasons[reason_index],
+                "records": [asdict(record) for record in records]}
 
 
 def connect(transport):

@@ -1,4 +1,4 @@
-"""Bounded post-trigger capture reference contract (not yet integrated in RTL).
+"""Bounded post-trigger capture reference contract.
 
 Sample immediately before engine execution at an edge. Output/marker changes
 from that execution therefore appear at the next capture sample. Timestamps
@@ -86,7 +86,7 @@ class Capture:
         # Initial trigger state is always recorded, including an unchanged bus.
         # Later records capture changes and both assertion/deassertion of flags.
         clear_trigger = bool(self.records and self.records[-1].flags & TRIGGER)
-        if self.triggered and (trigger or sample != self.previous or clear_trigger):
+        if self.triggered and (trigger or sample != self.previous or clear_trigger or sample.flags & MARKERS):
             self.records.append(Record(self.cycle, sample.inputs, sample.outputs,
                                        sample.enables, sample.flags | (TRIGGER if trigger else 0)))
             if len(self.records) == self.depth:
@@ -111,6 +111,11 @@ class Capture:
         if self.armed:
             self.armed = False
             self.reason = "stopped" if self.triggered else "untriggered"
+
+    def disable(self):
+        if self.armed:
+            self.armed = False
+            self.reason = "disabled"
 
     @property
     def complete(self):

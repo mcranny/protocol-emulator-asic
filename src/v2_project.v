@@ -62,6 +62,11 @@ module tt_um_mcranny_protocol_emulator_v2 (
     reg reject, fatal;
     reg [23:0] result;
     reg [15:0] host_errors;
+    wire [63:0] capture_data;
+    wire [31:0] capture_time, capture_trigger_time;
+    wire [5:0] capture_count;
+    wire capture_armed, capture_triggered, capture_truncated;
+    wire [2:0] capture_reason;
     always @* begin
         reject = 0; fatal = 0; result = 0;
         case (cmd)
@@ -98,6 +103,10 @@ module tt_um_mcranny_protocol_emulator_v2 (
                 if (addr != 0 || payload != 0) begin reject=1; fatal=1; end
                 result = 24'h021010; // two engines, 16 TX and 16 RX entries
             end
+            11: begin
+                if (addr != 0 || payload != 0) begin reject=1; fatal=1; end
+                result = 24'h20001f; // 32 capture records and feature flags 0..4
+            end
             8'h13: begin
                 if (addr[6:0] != 0 || payload != 0) begin reject=1; fatal=1; end
                 if (available_rx == 0) reject=1;
@@ -120,6 +129,33 @@ module tt_um_mcranny_protocol_emulator_v2 (
             8'h24: begin
                 if (addr[6:0] != 0 || payload[23:2] != 0) begin reject=1; fatal=1; end
                 if (selected_running) reject=1;
+            end
+            8'h30: begin
+                if (addr != 0 || |(payload & 24'hff00fc)) begin reject=1; fatal=1; end
+            end
+            8'h31,8'h32: begin
+                if (addr != 0 || payload != 0) begin reject=1; fatal=1; end
+                if (cmd == 8'h32)
+                    result = {12'b0,capture_count,capture_reason,capture_truncated,capture_triggered,capture_armed};
+            end
+            8'h33: begin
+                if (addr > 3 || payload != 0) begin reject=1; fatal=1; end
+                if (capture_armed) reject=1;
+                case (addr[1:0])
+                    0: result = capture_time[23:0];
+                    1: result = {16'b0,capture_time[31:24]};
+                    2: result = capture_trigger_time[23:0];
+                    3: result = {16'b0,capture_trigger_time[31:24]};
+                endcase
+            end
+            8'h35,8'h36,8'h37: begin
+                if (addr > 31 || payload != 0) begin reject=1; fatal=1; end
+                if (capture_armed) reject=1;
+                case (cmd)
+                    8'h35: result = capture_data[23:0];
+                    8'h36: result = capture_data[47:24];
+                    default: result = {8'b0,capture_data[63:48]};
+                endcase
             end
             default: begin reject=1; fatal=1; end
         endcase
@@ -186,5 +222,16 @@ module tt_um_mcranny_protocol_emulator_v2 (
     assign uio_out = (out0 & oe0) | (out1 & oe1);
     assign uio_oe = (oe0 | oe1) & {8{rst_n && ena}};
     assign uo_out = {4'b0, |(errors0 | errors1 | host_errors), running, miso};
-    wire _unused = &{ui_in[7:3],mark0,mark1,1'b0};
+    protocol_capture_v2 capture (
+        .clk(clk), .rst_n(reset_n), .arm(ena && accepted && cmd == 8'h30),
+        .stop(accepted && cmd == 8'h31), .disable_capture(!ena),
+        .trigger_mode(payload[1:0]), .trigger_mask(payload[15:8]),
+        .pins_in(pins_sync), .pins_out(uio_out), .pins_oe(uio_oe),
+        .flags({2'b0,running,1'b0,|(errors0 | errors1 | host_errors),|mark1,|mark0}),
+        .read_address(addr[4:0]), .read_data(capture_data), .count(capture_count),
+        .timestamp(capture_time), .trigger_timestamp(capture_trigger_time),
+        .armed(capture_armed), .triggered(capture_triggered),
+        .truncated(capture_truncated), .reason(capture_reason)
+    );
+    wire _unused = &{ui_in[7:3],1'b0};
 endmodule

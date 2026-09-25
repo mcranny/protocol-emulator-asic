@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 `default_nettype none
-// Standalone capture candidate. Samples pre-execution state; never controls an
-// engine. Integration and combined physical acceptance are still required.
+// Capture candidate. Samples pre-execution state; never controls an engine.
+// Combined physical acceptance is still required.
 module protocol_capture_v2 #(
     parameter DEPTH = 32,
     parameter TIMESTAMP_WIDTH = 32
 ) (
     input wire clk, rst_n,
-    input wire arm, stop,
+    input wire arm, stop, disable_capture,
     input wire [1:0] trigger_mode,
     input wire [7:0] trigger_mask,
     input wire [7:0] pins_in, pins_out, pins_oe, flags,
@@ -21,7 +21,7 @@ module protocol_capture_v2 #(
     localparam [31:0] MAX_TIMESTAMP = 32'hffffffff >> (32 - TIMESTAMP_WIDTH);
     localparam [5:0] CAPACITY = DEPTH[5:0];
     // reason: reset=0, armed=1, capturing=2, stopped=3, untriggered=4,
-    // capacity=5, timestamp=6. Trigger annotation occupies flags[3].
+    // capacity=5, timestamp=6, disabled=7. Trigger annotation occupies flags[3].
     reg [63:0] records [0:DEPTH-1];
     reg [31:0] previous;
     reg [1:0] mode;
@@ -37,8 +37,9 @@ module protocol_capture_v2 #(
         (selected_mode == 2 && |(sampled_flags & selected_mask & 8'h03)) ||
         (selected_mode == 3 && sampled_flags[2]));
     wire [31:0] cycle = arm ? 0 : timestamp + 1'b1;
-    wire take = arm ? fire : (triggered || fire) && (fire || sample != previous || clear_trigger);
-    wire sampling = arm || (armed && !stop);
+    wire take = arm ? fire : (triggered || fire) &&
+        (fire || sample != previous || clear_trigger || |sampled_flags[1:0]);
+    wire sampling = arm || (armed && !stop && !disable_capture);
     wire [5:0] next_count = arm ? 6'd1 : count + 1'b1;
     assign read_data = {1'b0,read_address} < count ? records[read_address] : 64'b0;
 
@@ -59,7 +60,8 @@ module protocol_capture_v2 #(
             truncated<=fire && CAPACITY == 1;
             reason<=fire ? (CAPACITY == 1 ? 3'd5 : 3'd2) : 3'd1;
         end else if (armed) begin
-            if (stop) begin armed<=0; reason<=triggered ? 3'd3 : 3'd4; end
+            if (disable_capture) begin armed<=0; reason<=7; end
+            else if (stop) begin armed<=0; reason<=triggered ? 3'd3 : 3'd4; end
             else begin
                 timestamp<=cycle; previous<=sample; clear_trigger<=fire;
                 if (fire) begin triggered<=1; trigger_timestamp<=cycle; reason<=2; end

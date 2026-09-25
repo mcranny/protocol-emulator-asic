@@ -11,7 +11,8 @@ separate. The candidate contract is in [v2-contract.md](v2-contract.md).
   false starts, framing errors and break recovery.
 - Three RTL differential suites compare per-cycle UART, instruction and FIFO
   boundary behavior against the Python model.
-- Seven pin-driven suites exercise host safety, sustained 115200 full duplex,
+- Eight pin-driven suites exercise host safety, capture readout/noninterference,
+  sustained 115200 full duplex,
   16-byte full-duplex bursts at 1 Mbaud, both SPI roles in all modes and both
   I2C roles with independent peers. The same suite can run on a routed netlist.
 - Formal induction proves the documented core safety properties with arbitrary
@@ -20,8 +21,9 @@ separate. The candidate contract is in [v2-contract.md](v2-contract.md).
   incorrect packed TX ordering, inverted wait edges, shifted capture timestamps
   and unsafe open-drain output enabling. Compile
   failures, missing results and skipped tests do not count as detections.
-- A [standalone capture candidate](v2-capture.md) has differential, model and
-  induction tests. It is not connected to the V2 top or host transport yet.
+- The [capture candidate](v2-capture.md) has standalone differential, model and
+  induction tests plus integrated pin/host tests. Combined physical acceptance
+  is pending.
 
 ## Physical feasibility observations
 
@@ -47,7 +49,7 @@ I2C roles use all 64 words. A 128-word implementation has not been selected.
 
 The ISA remains unfrozen. Required work includes complete I2C timing/filtering
 checks, wider protocol error/phase/abort cases, top-level isolation and burst
-atomicity proofs, triggered capture, scheduled faults, JSON/VCD export, both
+atomicity proofs, scheduled faults, complete scenario export, both
 replay forms, the custom protocol demonstration and runnable user workflows.
 End-to-end sampling and capture mutation coverage must also be retained when
 the standalone capture block is integrated with the engines and host.
