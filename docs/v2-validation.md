@@ -50,15 +50,26 @@ I2C roles use all 64 words. A 128-word implementation has not been selected.
 A clean baseline full build at `b6b534b` subsequently passed local routed
 electrical checks, Magic DRC and LVS. Its functional netlist is byte-identical
 to the earlier route that passed all seven baseline routed-netlist suites.
-KLayout and Tiny Tapeout prechecks are still pending for that baseline.
+All nine Tiny Tapeout prechecks also passed for that baseline, including full
+KLayout DRC. The later SPI firmware clock correction passes both independent
+routed-netlist suites on this baseline netlist at both rates and all modes.
 
 The first integrated capture route at `08cb243` failed detailed placement
 after clock-tree insertion and hold repair. Utilization before hold repair was
 79.8675%; repair inserted 7,336 delay cells, after which 274 instances could not
 be legalized within the configured displacement limits. A wider-displacement
-experiment is local and unaccepted. Sharing each engine's instruction-fetch
-and stopped-engine host readback port reduces duplicated memory-selection
-logic; combined physical validation must be repeated for that implementation.
+experiment passed hold legalization, but reached 93.1422% utilization before
+global-route repair. Repair inserted 13,851 buffers, largely for 5,286 wires
+exceeding the experimental 150 um wire-length setting; 4,513 instances then
+failed legalization.
+
+Sharing instruction-fetch and stopped-engine host readback at `52fd389`
+reduced pinned synthesis area from 638,056.5156 to 618,348.9186 um2. With the
+original displacement limits, post-clock-tree hold legalization still failed
+on nine instances. Combined physical acceptance remains open. A local trial
+uses wider displacement and automatic wire-length repair instead of imposing
+150 um on every signal. Final electrical, timing and layout checks remain
+mandatory regardless of optimization settings.
 No footprint, clock, memory depth or electrical limit has been relaxed.
 
 ## Remaining acceptance work

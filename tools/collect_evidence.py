@@ -37,11 +37,15 @@ def collect(kind):
     source = commit["output"]
     if os.environ.get("GITHUB_SHA", source) != source:
         raise ValueError("checkout does not match workflow source")
-    patterns = ["test/results*.xml", "test/output/*.json", "test/*.fst",
-                "test/sim_build/core/*.fst", "build/*-engine.log",
+    status = command(["git", "status", "--porcelain"])
+    if status.get("exit_code") != 0:
+        raise ValueError("source cleanliness unavailable")
+    patterns = ["test/results*.xml", "test/output/*.json", "test/output/*.vcd", "test/*.fst",
+                "test/sim_build/core/*.fst", "build/formal-*.log",
                 "build/python-results.xml", "build/synthesis.log", "src/*.v",
                 "src/config.json", "info.yaml", "test/requirements.txt",
-                "formal/*.ys", "examples/*.asm", "test/test*.py",
+                "formal/*.ys", "examples/*.asm", "test/test*.py", "test/Makefile*",
+                "tests/test_v2*.py", "build/v2-mutations/results.json",
                 "host/protocol_emulator/*.py", "host/protocol_emulator/v2/*.py",
                 "physical/v2/*", "tools/v2_*.py"]
     paths = [path for pattern in patterns for path in Path(".").glob(pattern)]
@@ -58,6 +62,7 @@ def collect(kind):
         except importlib.metadata.PackageNotFoundError:
             packages[package] = None
     return {"schema": 1, "kind": kind, "source_commit": source,
+            "source_dirty": bool(status["output"]),
             "workflow_run_id": os.environ.get("GITHUB_RUN_ID"),
             "workflow_run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT"),
             "python": sys.version, "packages": packages,
