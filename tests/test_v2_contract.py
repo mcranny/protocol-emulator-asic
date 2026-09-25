@@ -113,17 +113,20 @@ def test_uart_transmit_preserves_v1_timing(period):
 
 
 @pytest.mark.parametrize("mode", range(4))
-def test_spi_controller_independent_edge_decoder(mode):
-    e = engine(spi_controller(mode), 7)
+@pytest.mark.parametrize("frequency", [100_000, 1_000_000])
+def test_spi_controller_independent_edge_decoder(mode, frequency):
+    e = engine(spi_controller(mode, frequency=frequency), 7)
     e.push([0xA5])
     cpol, cpha = mode >> 1, mode & 1
     received = []
+    edges = []
     previous = (cpol << 1) | 4
     # MISO held high: RX must independently assemble FF.
-    for _ in range(400):
+    for cycle in range(25_000_000 // frequency * 12):
         e.tick(8)
         current, oe = e.pins
         if not current & 4 and (current ^ previous) & 2:
+            edges.append(cycle)
             leading = (current >> 1 & 1) != cpol
             if leading != bool(cpha):
                 received.append(current & 1)
@@ -131,6 +134,9 @@ def test_spi_controller_independent_edge_decoder(mode):
     assert received == [1, 0, 1, 0, 0, 1, 0, 1]
     assert list(e.rx) == [(255, 0)]
     assert not e.errors
+    assert len(edges) == 16
+    assert {b - a for a, b in zip(edges, edges[2:])} == {25_000_000 // frequency}
+    assert min(b - a for a, b in zip(edges, edges[1:])) == 25_000_000 // frequency // 2
 
 
 @pytest.mark.parametrize("mode", range(4))

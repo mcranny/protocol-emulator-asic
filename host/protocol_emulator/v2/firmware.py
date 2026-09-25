@@ -36,21 +36,29 @@ def uart_rx(period=25, pin=1):
     return "\n".join(lines)
 
 
-def spi_controller(mode=0, half=13):
-    """MOSI=0, SCK=1, CS_n=2, MISO=3; one CS assertion per byte."""
-    if mode not in range(4) or half < 12:
+def spi_controller(mode=0, half=None, frequency=1_000_000):
+    """MOSI=0, SCK=1, CS_n=2, MISO=3; one CS assertion per byte.
+
+    Include OUT/IN and loop control in the requested SCK period. At 1 MHz,
+    leading/trailing phases are 12/13 clocks; at 100 kHz each is 125 clocks.
+    Explicit half selects a symmetric experimental period of 2*half clocks.
+    """
+    if (mode not in range(4) or frequency not in (100_000, 1_000_000)
+            or (half is not None and (type(half) is not int or not 13 <= half <= 60000))):
         raise ValueError("unsupported SPI mode/half period")
+    period = 25_000_000 // frequency if half is None else 2 * half
+    leading, trailing = period // 2, period - period // 2
     idle = (mode >> 1) * 2
     active = idle ^ 2
     lines = [f"DRIVE {idle | 4}, 7", "next: PULL 0", "MOVOS 0", "CLEARIS",
              "LI 0, 8", f"SET 4, 0"]
     if mode & 1:
-        lines += [f"loop: SET 2, {active}", "OUT8 0", f"DELAY {half - 2}",
-                  f"SET 2, {idle}", "IN 3, 1", f"DELAY {half - 3}", "DJNZ 0, loop"]
+        lines += [f"loop: SET 2, {active}", "OUT8 0", f"DELAY {leading - 2}",
+                  f"SET 2, {idle}", "IN 3, 1", f"DELAY {trailing - 3}", "DJNZ 0, loop"]
     else:
-        lines += ["loop: OUT8 0", f"DELAY {half - 1}", f"SET 2, {active}",
-                  "IN 3, 1", f"DELAY {half - 3}", f"SET 2, {idle}", "DJNZ 0, loop"]
-    lines += [f"DELAY {half}", "SET 4, 4", "RX 0", "JMP next"]
+        lines += ["loop: OUT8 0", f"DELAY {trailing - 3}", f"SET 2, {active}",
+                  "IN 3, 1", f"DELAY {leading - 2}", f"SET 2, {idle}", "DJNZ 0, loop"]
+    lines += [f"DELAY {leading}", "SET 4, 4", "RX 0", "JMP next"]
     return "\n".join(lines)
 
 

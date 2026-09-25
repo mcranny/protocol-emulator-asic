@@ -401,7 +401,7 @@ async def v2_uart_megabaud_buffered_duplex(dut):
 async def v2_spi_target_independent_peer(dut):
     cocotb.start_soon(Clock(dut.clk, 40, unit="ns").start())
     for mode in range(4):
-        for phase in (3, 19, 37):
+        for half_ns, phase in ((h, p) for h in (500, 5000) for p in (3, 19, 37)):
             await reset(dut)
             h = Host(dut)
             cpol, cpha = mode >> 1, mode & 1
@@ -423,20 +423,20 @@ async def v2_spi_target_independent_peer(dut):
                     mosi = value >> bit & 1
                     if cpha:
                         dut.uio_in.value = (1 - cpol) << 1 | mosi
-                        await Timer(500, unit="ns")
+                        await Timer(half_ns, unit="ns")
                         dut.uio_in.value = cpol << 1 | mosi
                         result = result << 1 | (int(dut.uio_out.value) >> 3 & 1)
-                        await Timer(500, unit="ns")
+                        await Timer(half_ns, unit="ns")
                     else:
                         dut.uio_in.value = cpol << 1 | mosi
-                        await Timer(500, unit="ns")
+                        await Timer(half_ns, unit="ns")
                         dut.uio_in.value = (1 - cpol) << 1 | mosi
                         result = result << 1 | (int(dut.uio_out.value) >> 3 & 1)
-                        await Timer(500, unit="ns")
+                        await Timer(half_ns, unit="ns")
                 if not cpha:
                     dut.uio_in.value = cpol << 1 | mosi
                 got.append(result)
-            await Timer(500, unit="ns")
+            await Timer(half_ns, unit="ns")
             dut.uio_in.value = 4 | cpol << 1
             await Timer(1000, unit="ns")
             assert got == outgoing, (mode, phase, got)
@@ -449,30 +449,40 @@ async def v2_spi_target_independent_peer(dut):
 @cocotb.test()
 async def v2_spi_controller_independent_decoder(dut):
     cocotb.start_soon(Clock(dut.clk, 40, unit="ns").start())
-    for mode in range(4):
+    for frequency, mode in ((f, m) for f in (100_000, 1_000_000) for m in range(4)):
         await reset(dut)
         h = Host(dut)
         await h.request(0x21, payload=7)
-        await load(h, 0, spi_controller(mode))
+        await load(h, 0, spi_controller(mode, frequency=frequency))
         outgoing = [0xA5, 0x81, 0x5A]
         await batch(h, tx_commands(0, outgoing))
         dut.uio_in.value = 8
-        bits = []
+        bits, edges, chip_selects = [], [], []
         async def decode_edges():
             previous = (mode >> 1) << 1 | 4
             while True:
                 await Timer(10, unit="ns")
                 current = int(dut.uio_out.value)
                 enabled = int(dut.uio_oe.value)
+                if enabled & 7 == 7 and (current ^ previous) & 4 and (chip_selects or not current & 4):
+                    chip_selects.append((get_sim_time(unit="ns"), bool(current & 4)))
                 if enabled & 7 == 7 and not current & 4 and (current ^ previous) & 2:
+                    edges.append(get_sim_time(unit="ns"))
                     leading = (current >> 1 & 1) != mode >> 1
                     if leading != bool(mode & 1):
                         bits.append(current & 1)
                 previous = current
         observer = cocotb.start_soon(decode_edges())
         await h.request(3)
-        await Timer(50000, unit="ns")
+        await Timer(350000 if frequency == 100_000 else 50000, unit="ns")
         observer.cancel()
+        assert len(edges) == 48 and len(chip_selects) == 6
+        for byte in range(3):
+            clocks = edges[byte * 16:(byte + 1) * 16]
+            assert {b - a for a, b in zip(clocks, clocks[2:])} == {1e9 / frequency}
+            assert min(b - a for a, b in zip(clocks, clocks[1:])) >= 480
+            assert chip_selects[2 * byte][0] < clocks[0]
+            assert clocks[-1] < chip_selects[2 * byte + 1][0]
         assert bits == [value >> bit & 1 for value in outgoing for bit in range(7, -1, -1)]
         records = await batch(h, [command_frame(0x13)] * 3)
         assert [value & 65535 for value in records] == [255] * 3

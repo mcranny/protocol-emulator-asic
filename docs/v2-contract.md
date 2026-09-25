@@ -19,6 +19,14 @@ The current combined I2C controller and bidirectional I2C target each fit exactl
 64 instructions. This leaves no spare instruction capacity for those images;
 changes must repeat firmware-fit and timing tests before the ISA can be frozen.
 
+SPI controller firmware accepts `frequency=100_000` or `1_000_000`. Its delay
+constants include output, input and loop-control instructions. The selected
+SCK period is exactly 250 or 25 system clocks within each byte, for every mode.
+At 1 MHz the leading/trailing phases are 12/13 clocks; at 100 kHz both are 125
+clocks. CS is deasserted between bytes. Independent target tests cover both
+rates, all four modes and asynchronous input phases. Abort and underrun
+acceptance still requires expanded testing.
+
 I2C controller firmware accepts `frequency=100_000` or `400_000`. Delays account
 for instruction overhead and synchronized clock observation. Byte boundaries,
 repeated START and stretching can lengthen periods. Model and pin checks enforce
