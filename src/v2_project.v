@@ -79,7 +79,8 @@ module tt_um_mcranny_protocol_emulator_v2 (
                 end
                 else begin
                     if (payload != 0) begin reject=1; fatal=1; end
-                    if (!(select_engine ? valid1 : valid0)) begin reject=1; fatal=1; end
+                    if (selected_running) reject=1;
+                    else if (!(select_engine ? valid1 : valid0)) begin reject=1; fatal=1; end
                     result = select_engine ? read1 : read0;
                 end
             end
