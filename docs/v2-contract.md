@@ -19,6 +19,14 @@ The current combined I2C controller and bidirectional I2C target each fit exactl
 64 instructions. This leaves no spare instruction capacity for those images;
 changes must repeat firmware-fit and timing tests before the ISA can be frozen.
 
+I2C controller firmware accepts `frequency=100_000` or `400_000`. Delays account
+for instruction overhead and synchronized clock observation. Byte boundaries,
+repeated START and stretching can lengthen periods. Model and pin checks enforce
+the clock-frequency ceiling and minimum high/low times from
+[UM10204 rev. 7, table 11](https://www.nxp.com/docs/en/user-guide/UM10204.pdf).
+This is only part of I2C acceptance: input spike filtering, SDA timing, bus
+recovery and analog pad/board behavior are not established by these checks.
+
 Program writes require a stopped selected engine. Individual START preserves
 both FIFOs and sticky errors while clearing working registers and events.
 Atomic START validates every selected engine before starting any of them.

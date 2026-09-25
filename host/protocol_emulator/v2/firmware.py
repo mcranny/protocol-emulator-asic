@@ -101,14 +101,22 @@ def sizes():
     return {name: len(assemble(source)) for name, source in sources.items()}
 
 
-def i2c_controller(address=0x42, write_count=1, read_count=0, half=32):
+def i2c_controller(address=0x42, write_count=1, read_count=0, half=None, frequency=400_000):
     """SDA=0/SCL=1, both open-drain. Optional combined write/repeated-start/read.
 
     Byte counts are firmware parameters. TX contains write data; RX contains
     read data. The transmitted address is checked for arbitration like data.
+    Nominal 100/400 kHz timings include instruction and synchronization costs.
+    An explicit half overrides both delay constants for timing experiments.
     """
     if not 0x08 <= address <= 0x77 or not 0 <= write_count <= 16 or not 0 <= read_count <= 16:
         raise ValueError("invalid I2C address/count")
+    if frequency not in (100_000, 400_000):
+        raise ValueError("unsupported I2C frequency")
+    if half is None:
+        half, high = (120, 121) if frequency == 100_000 else (32, 22)
+    else:
+        high = half
     if not write_count + read_count or half < 32:
         raise ValueError("unsupported I2C timing/empty transaction")
     lines = ["WAIT 0, 1, 65535", "CALL start"]
@@ -120,22 +128,22 @@ def i2c_controller(address=0x42, write_count=1, read_count=0, half=32):
     if read_count:
         lines += [f"LI 0, {address << 1 | 1}", "CALL send", f"LI 1, {read_count}",
                   "read: CLEARIS", "LI 0, 8", "SET 1, 1", f"bit: DELAY {half}",
-                  "SET 2, 2", "WAIT 1, 1, 65535", f"DELAY {half}", "IN 0, 1",
+                  "SET 2, 2", "WAIT 1, 1, 65535", f"DELAY {high}", "IN 0, 1",
                   "SET 2, 0", "DJNZ 0, bit", "RX 0", "DJNZ 1, ack",
                   "SET 1, 1", "JMP ack_clock", "ack: SET 1, 0",
                   f"ack_clock: DELAY {half}", "SET 2, 2", "WAIT 1, 1, 65535",
-                  f"DELAY {half}", "SET 2, 0", "BREQ stop, 0, 1", "JMP read"]
+                  f"DELAY {high}", "SET 2, 0", "BREQ stop, 0, 1", "JMP read"]
     lines += ["stop: SET 1, 0", f"DELAY {half}", "SET 2, 2", "WAIT 1, 1, 65535",
-              f"DELAY {half}", "SET 1, 1", "HALT",
+              f"DELAY {high}", "SET 1, 1", "HALT",
               "send: MOVOS 0", "LI 0, 8", "send_bit: OUT8 0", f"DELAY {half}",
-              "SET 2, 2", "WAIT 1, 1, 65535", f"DELAY {half}", "BRDIFF lost, 0",
+              "SET 2, 2", "WAIT 1, 1, 65535", f"DELAY {high}", "BRDIFF lost, 0",
               "SET 2, 0", "DJNZ 0, send_bit", "SET 1, 1", f"DELAY {half}",
-              "SET 2, 2", "WAIT 1, 1, 65535", f"DELAY {half}", "BRPIN nack, 0, 1",
+              "SET 2, 2", "WAIT 1, 1, 65535", f"DELAY {high}", "BRPIN nack, 0, 1",
               "SET 2, 0", "RET", "lost: FAIL 4", "nack: FAIL 8", "underrun: FAIL 1",
               "start: SET 1, 1", f"DELAY {half}", "SET 2, 2", "WAIT 1, 1, 65535",
-              f"DELAY {half}", "DRIVE 2, 3", f"DELAY {half}", "SET 2, 0", "RET"]
+              f"DELAY {high}", "DRIVE 2, 3", f"DELAY {half}", "SET 2, 0", "RET"]
     source = "\n".join(lines)
-    clock_high = f"SET 2, 2\nWAIT 1, 1, 65535\nDELAY {half}"
+    clock_high = f"SET 2, 2\nWAIT 1, 1, 65535\nDELAY {high}"
     return source.replace(clock_high, "CALL clock_high") + "\nclock_high: " + clock_high + "\nRET"
 
 

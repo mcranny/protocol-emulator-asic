@@ -188,3 +188,40 @@ def test_controller_combined_with_byte_peer(write_count, read_count, synchroniza
     assert peer.stops == 1
     if read_count:
         assert peer.acks == [0] * (read_count - 1) + [1]
+
+
+@pytest.mark.parametrize("frequency,minimum_low,minimum_high", [
+    (100_000, 4700, 4000), (400_000, 1300, 600)])
+@pytest.mark.parametrize("synchronization", [2, 3])
+def test_controller_clock_timing_budget(frequency, minimum_low, minimum_high, synchronization):
+    # UM10204 rev.7 table 11: digital pulse lengths and frequency ceiling.
+    # Pad edge slopes and SDA setup/hold are separate acceptance requirements.
+    source = i2c_controller(write_count=2, read_count=2, frequency=frequency)
+    assert len(assemble(source)) <= 64
+    e = loaded(source)
+    e.push([0x55, 0xAA])
+    peer = I2CTarget(read_data=b"\x81\x55")
+    pipe = [3] * synchronization
+    edges, previous = [], 3
+    for cycle in range(30000):
+        value, enable = e.pins
+        bus = (value | ~enable) & ~peer.drive_low & 3
+        peer.observe(bus)
+        bus = (value | ~enable) & ~peer.drive_low & 3
+        if (previous ^ bus) & 2:
+            edges.append((cycle, bool(bus & 2)))
+        previous = bus
+        pipe.append(bus)
+        e.tick(pipe.pop(0))
+        if not e.running:
+            break
+    assert not e.running and not e.errors
+    assert peer.received == [0x55, 0xAA]
+    assert list(e.rx) == [(0x81, 0), (0x55, 0)]
+    high = [(b[0] - a[0]) * 40 for a, b in zip(edges, edges[1:]) if a[1]]
+    low = [(b[0] - a[0]) * 40 for a, b in zip(edges, edges[1:]) if not a[1]]
+    rising = [cycle for cycle, level in edges if level]
+    fastest = min(b - a for a, b in zip(rising, rising[1:])) * 40
+    assert min(low) >= minimum_low
+    assert min(high) >= minimum_high
+    assert 1e9 / frequency <= fastest <= 1.04e9 / frequency

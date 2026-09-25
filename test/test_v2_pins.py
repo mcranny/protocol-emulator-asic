@@ -244,23 +244,29 @@ async def v2_spi_controller_independent_decoder(dut):
 @cocotb.test()
 async def v2_i2c_controller_independent_peer(dut):
     cocotb.start_soon(Clock(dut.clk, 40, unit="ns").start())
-    for writes, reads in ((2, 0), (0, 3), (2, 3)):
+    for frequency, writes, reads in ((f, w, r) for f in (100_000, 400_000)
+                                    for w, r in ((2, 0), (0, 3), (2, 3))):
         await reset(dut)
         h = Host(dut)
         await h.request(0x21, payload=0x0303)
-        await load(h, 0, i2c_controller(write_count=writes, read_count=reads))
+        await load(h, 0, i2c_controller(write_count=writes, read_count=reads, frequency=frequency))
         await batch(h, tx_commands(0, [0x55, 0xA5][:writes]))
         peer = I2CTarget(read_data=bytes([0x81, 0x55, 0xA5]))
+        edges = []
         async def resolve_bus():
+            previous = 3
             while True:
                 await Timer(10, unit="ns")
                 value, enable = int(dut.uio_out.value), int(dut.uio_oe.value)
                 bus = (value | ~enable) & ~peer.drive_low & 3
+                if (bus ^ previous) & 2:
+                    edges.append((get_sim_time(unit="ns"), bool(bus & 2)))
+                previous = bus
                 peer.observe(bus)
                 dut.uio_in.value = 252 | ((value | ~enable) & ~peer.drive_low & 3)
         resolver = cocotb.start_soon(resolve_bus())
         await h.request(3)
-        await Timer(250000, unit="ns")
+        await Timer(750000 if frequency == 100_000 else 250000, unit="ns")
         assert await h.request(6) == 0
         assert peer.received == [0x55, 0xA5][:writes]
         assert peer.starts == (2 if writes and reads else 1)
@@ -270,6 +276,13 @@ async def v2_i2c_controller_independent_peer(dut):
             assert [value & 65535 for value in records] == [0x81, 0x55, 0xA5][:reads]
             assert peer.acks == [0] * (reads - 1) + [1]
         resolver.cancel()
+        high = [b[0] - a[0] for a, b in zip(edges, edges[1:]) if a[1]]
+        low = [b[0] - a[0] for a, b in zip(edges, edges[1:]) if not a[1]]
+        rising = [time for time, level in edges if level]
+        fastest = min(b - a for a, b in zip(rising, rising[1:]))
+        assert min(low) >= (4700 if frequency == 100_000 else 1300)
+        assert min(high) >= (4000 if frequency == 100_000 else 600)
+        assert 1e9 / frequency <= fastest <= 1.04e9 / frequency
 
 
 @cocotb.test()
