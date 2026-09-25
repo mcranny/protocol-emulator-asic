@@ -69,6 +69,26 @@ def test_arm_validation_does_not_destroy_existing_capture():
     assert capture.export(allow_incomplete=True) == before
 
 
+def test_consecutive_identical_markers_are_distinct_events():
+    capture = Capture()
+    marker = Sample(255, 0, 0, 1)
+    capture.arm(marker, "marker", 1)
+    for _ in range(3):
+        capture.tick(marker)
+    assert [record.cycle for record in capture.records] == [0, 1, 2, 3]
+    assert [record.flags for record in capture.records] == [9, 1, 1, 1]
+
+
+def test_disable_preserves_diagnostic_records_without_claiming_completion():
+    capture = Capture()
+    capture.arm(Sample(255, 0, 0))
+    capture.disable()
+    capture.stop()
+    assert capture.reason == "disabled" and len(capture.records) == 1
+    with pytest.raises(ValueError, match="incomplete"):
+        capture.export()
+
+
 def test_observation_does_not_change_engine_waveform():
     from protocol_emulator.v2.model import Device
     from protocol_emulator.v2.isa import assemble
@@ -90,3 +110,22 @@ def test_observation_does_not_change_engine_waveform():
     assert [(r.cycle, r.outputs, r.enables) for r in capture.records if r.outputs] == [
         (2, 3, 3), (3, 3, 3), (4, 3, 3)]
     assert [r.cycle for r in capture.records if r.flags & 3] == [3]
+
+
+def test_device_capture_sees_shared_error_after_execution_edge():
+    from protocol_emulator.v2.model import Device
+    from protocol_emulator.v2.isa import assemble
+    device = Device(64)
+    device.configure([1, 0])
+    device.engines[0].load(assemble("DRIVE 1, 1\nJMP 1"))
+    device.start(1)
+    device.tick(255, capture_arm=("error", 255))
+    device.tick(255, frame_error=True)
+    assert not device.capture.triggered
+    device.tick(255)
+    assert device.capture.trigger_cycle == 2
+    first = device.capture.records[0]
+    assert first.outputs == first.enables == 0
+    assert first.flags == 12
+    device.tick(255, capture_stop=True)
+    assert device.capture.complete

@@ -16,7 +16,7 @@ VERILOG_SOURCES += $(GATE_LEVEL_NETLIST)
 SIM_BUILD = sim_build/v2gl
 COCOTB_RESULTS_FILE = results_v2_gl.xml
 else
-VERILOG_SOURCES = $(CURDIR)/../src/host_spi.v $(CURDIR)/../src/v2_engine.v $(CURDIR)/../src/v2_project.v
+VERILOG_SOURCES = $(CURDIR)/../src/host_spi.v $(CURDIR)/../src/v2_engine.v $(CURDIR)/../src/v2_capture.v $(CURDIR)/../src/v2_project.v
 SIM_BUILD = sim_build/v2pins
 COCOTB_RESULTS_FILE = results_v2_pins.xml
 endif

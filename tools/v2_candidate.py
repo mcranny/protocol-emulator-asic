@@ -26,7 +26,7 @@ def prepare(destination):
     destination.mkdir(parents=True, exist_ok=False)
     (destination / "src").mkdir()
     shutil.copy2(ROOT / "physical/v2/info.yaml", destination / "info.yaml")
-    for filename in ("host_spi.v", "v2_engine.v", "v2_project.v"):
+    for filename in ("host_spi.v", "v2_engine.v", "v2_capture.v", "v2_project.v"):
         shutil.copy2(ROOT / "src" / filename, destination / "src" / filename)
     (destination / "src/config.json").write_text(json.dumps(config, indent=2) + "\n")
     patterns = ("src/*.v", "src/config.json", "physical/v2/*", "host/protocol_emulator/*.py",

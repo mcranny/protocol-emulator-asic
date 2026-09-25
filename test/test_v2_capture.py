@@ -13,23 +13,25 @@ from protocol_emulator.v2.capture import Capture, Sample
 async def v2_capture_differential(dut):
     model = Capture(timestamp_bits=8)
     modes = ("immediate", "pin", "marker", "error")
-    reasons = ("reset", "armed", "capturing", "stopped", "untriggered", "capacity", "timestamp")
+    reasons = ("reset", "armed", "capturing", "stopped", "untriggered", "capacity", "timestamp", "disabled")
     dut.clk.value = 0
     dut.rst_n.value = 0
     dut.arm.value = dut.stop.value = 0
+    dut.disable_capture.value = 0
     dut.trigger_mode.value = dut.trigger_mask.value = 0
     dut.pins_in.value = dut.pins_out.value = dut.pins_oe.value = dut.flags.value = 0
     dut.read_address.value = 0
     await Timer(20, unit="ns")
     steps = 0
 
-    async def step(sample, *, arm=None, mask=255, stop=False, reset=False):
+    async def step(sample, *, arm=None, mask=255, stop=False, reset=False, disable=False):
         nonlocal steps
         steps += 1
         dut.clk.value = 0
         dut.rst_n.value = not reset
         dut.arm.value = arm is not None
         dut.stop.value = stop
+        dut.disable_capture.value = disable
         if arm is not None:
             dut.trigger_mode.value = modes.index(arm)
             dut.trigger_mask.value = mask
@@ -43,6 +45,8 @@ async def v2_capture_differential(dut):
             model.reset()
         elif arm is not None:
             model.arm(sample, arm, mask)
+        elif disable:
+            model.disable()
         elif stop:
             model.stop()
         else:
@@ -53,7 +57,7 @@ async def v2_capture_differential(dut):
         expected = (len(model.records), model.cycle, model.trigger_cycle or 0,
                     model.armed, model.triggered, model.truncated, reasons.index(model.reason))
         context = {"seed": 0xCA9702, "step": steps, "sample": sample.__dict__,
-                   "arm": arm, "mask": mask, "stop": stop, "reset": reset,
+                   "arm": arm, "mask": mask, "stop": stop, "reset": reset, "disable": disable,
                    "actual": actual, "expected": expected}
         def check(matches, detail):
             if not matches:
@@ -86,4 +90,4 @@ async def v2_capture_differential(dut):
         sample = Sample(*(rng.randrange(256) for _ in range(3)), rng.randrange(8))
         action = rng.randrange(25)
         await step(sample, arm=rng.choice(modes) if action == 0 else None,
-                   mask=rng.randrange(256), stop=action == 1, reset=action == 2)
+                   mask=rng.randrange(256), stop=action == 1, reset=action == 2, disable=action == 3)

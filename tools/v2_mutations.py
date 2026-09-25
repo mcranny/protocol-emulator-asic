@@ -38,7 +38,7 @@ def main():
         mutant.write_text(source.replace(before, after, 1))
         sources = [mutant]
         if makefile.endswith("pins"):
-            sources += [ROOT / "src/host_spi.v", ROOT / "src/v2_project.v"]
+            sources += [ROOT / "src/host_spi.v", ROOT / "src/v2_capture.v", ROOT / "src/v2_project.v"]
         result_path = directory / "results.xml"
         result_path.unlink(missing_ok=True)
         command = ["make", "-C", str(ROOT / "test"), "-f", makefile,

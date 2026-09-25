@@ -10,6 +10,7 @@ project:
   source_files:
     - "host_spi.v"
     - "v2_engine.v"
+    - "v2_capture.v"
     - "v2_project.v"
 pinout:
   ui[0]: "host SPI SCK"
