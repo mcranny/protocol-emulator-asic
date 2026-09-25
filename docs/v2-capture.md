@@ -54,7 +54,8 @@ The model rejects ordinary export of armed, untriggered or truncated captures.
 An explicitly requested diagnostic export can include incomplete records and
 their reason. VCD is a waveform view with 40 ns per timestamp tick; before a
 delayed trigger its values are unknown. It is not a replay source. Scenario
-firmware/configuration/stimulus provenance and replay remain separate work.
+firmware/configuration/stimulus provenance and replay are provided by the
+bounded [UART scenario runner](v2-scenarios.md).
 
 ## Host access
 

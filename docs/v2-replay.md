@@ -2,9 +2,9 @@
 
 `protocol_emulator.v2.replay.compile_schedule` converts a finite output schedule
 into ordinary `DRIVE`, `DELAY` and `HALT` instructions. It uses the existing
-timing engine and requires no replay hardware. This is the output-playback
-component of V2; complete scenario export and external-stimulus regression
-replay are still pending.
+timing engine and requires no replay hardware. The
+[UART scenario runner](v2-scenarios.md) uses this component alongside
+external-stimulus regression replay.
 
 ```python
 from protocol_emulator.v2.replay import OutputEvent, compile_schedule

@@ -13,6 +13,8 @@ from protocol_emulator.v2.firmware import uart_rx, uart_tx, spi_target, spi_cont
 from protocol_emulator.v2.peers import I2CTarget
 from protocol_emulator.v2.host import command_frame, tx_commands, parse_response
 from protocol_emulator.v2.replay import OutputEvent, compile_schedule
+from protocol_emulator.v2.scenario import uart_demo, write_artifacts
+from protocol_emulator.v2.peers import decode_uart as decode_uart_events
 
 
 async def capture_words(host):
@@ -162,6 +164,79 @@ async def v2_capture_host_and_noninterference(dut):
     status, words = await capture_words(h)
     assert status >> 3 & 7 == 7  # disabled captures remain diagnostic-only
     assert status & 7 == 2 and words
+
+
+@cocotb.test()
+async def v2_uart_fault_capture_and_scenario(dut):
+    cocotb.start_soon(Clock(dut.clk, 40, unit="ns").start())
+    for bad_stop in (True, False):
+        scenario = uart_demo(bad_stop=bad_stop, period=25)
+        await reset(dut)
+        h = Host(dut)
+        await h.request(0x21, payload=1)
+        for engine, image in enumerate(scenario["firmware"]):
+            await batch(h, [command_frame(1, engine, i, word) for i, word in enumerate(image["words"])])
+        await h.request(7, payload=scenario["tx"][0][0])
+        await h.request(0x30, payload=0x0102)
+        external = [255]
+        levels = []
+        def resolve_inputs():
+            out, oe = int(dut.uio_out.value), int(dut.uio_oe.value)
+            dut.uio_in.value = external[0] & ~oe | out & oe
+
+        async def stimulus(origin):
+            for edge in scenario["external_stimulus"]:
+                wait = origin + edge["time_ns"] - int(get_sim_time(unit="ns"))
+                assert wait > 0
+                await Timer(wait, unit="ns")
+                external[0] = edge["inputs"]
+                resolve_inputs()
+
+        async def observe():
+            for _ in range(3000):
+                await RisingEdge(dut.clk)
+                await Timer(1, unit="ns")
+                if int(dut.uo_out.value) & 6:
+                    break
+            else:
+                raise AssertionError("scenario did not start")
+            origin = int(get_sim_time(unit="ns")) + 39
+            peer = cocotb.start_soon(stimulus(origin))
+            index = 0
+            events = scenario["expected"]["outputs"]
+            for cycle in range(scenario["end_cycle"] + 1):
+                await RisingEdge(dut.clk)
+                await Timer(1, unit="ns")
+                if index + 1 < len(events) and events[index + 1]["cycle"] == cycle:
+                    index += 1
+                out, oe = int(dut.uio_out.value), int(dut.uio_oe.value)
+                assert (out, oe) == (events[index]["outputs"], events[index]["enables"]), cycle
+                assert not int(dut.uo_out.value) & 8
+                resolve_inputs()
+                level = external[0] & ~oe | out & oe
+                if not levels or levels[-1][1] != level:
+                    levels.append((cycle * 40, level))
+            await peer
+
+        observer = cocotb.start_soon(observe())
+        await h.request(0x20, payload=3)
+        await observer
+        await h.request(0x31)
+        status, words = await capture_words(h)
+        assert status & 63 == 3 << 3 | 2
+        origin = words[0] >> 32
+        records = [{"cycle": (word >> 32) - origin, "inputs": word >> 24 & 255,
+                    "outputs": word >> 16 & 255, "enables": word >> 8 & 255,
+                    "flags": word & 255} for word in words]
+        expected = scenario["expected"]["capture"]
+        assert records == [dict(record, cycle=record["cycle"] - expected["trigger_cycle"])
+                           for record in expected["records"]]
+        received = await h.request(0x13, addr=128)
+        assert received >> 16 == 1 and received & 65535 == scenario["seed"] % 256
+        assert decode_uart_events(levels, end_ns=(scenario["end_cycle"] + 1) * 40,
+                                  period_ns=1000) == scenario["expected"]["decoded"]
+        output = Path(__file__).parent / "output" / ("v2-uart-fault" if bad_stop else "v2-uart-fixed")
+        write_artifacts(scenario, output)
 
 
 @cocotb.test()

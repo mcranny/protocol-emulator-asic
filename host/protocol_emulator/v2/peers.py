@@ -1,5 +1,38 @@
 """Independent edge-based peers: no assembler or engine model dependencies."""
 
+from bisect import bisect_right
+
+
+def decode_uart(changes, *, end_ns, period_ns, pin=0, initial=255):
+    """Decode 8N1 from timestamped resolved pin levels at bit centers.
+
+    False starts are ignored; a low stop sample is reported on its frame.
+    A framing error requires a new falling edge after the frame before recovery.
+    Incomplete frames at the observation boundary are rejected.
+    """
+    times = [time for time, _ in changes]
+    levels = [value >> pin & 1 for _, value in changes]
+    def sample(time):
+        index = bisect_right(times, time) - 1
+        return levels[index] if index >= 0 else initial >> pin & 1
+
+    frames, available = [], 0
+    previous = initial >> pin & 1
+    for time, level in zip(times, levels):
+        falling = previous and not level
+        previous = level
+        if not falling or time < available:
+            continue
+        if sample(time + period_ns / 2):
+            continue
+        if time + 10 * period_ns > end_ns:
+            raise ValueError("incomplete UART frame")
+        value = sum(sample(time + (1.5 + bit) * period_ns) << bit for bit in range(8))
+        frames.append({"start_ns": time, "value": value,
+                       "framing_error": not bool(sample(time + 9.5 * period_ns))})
+        available = time + 10 * period_ns
+    return frames
+
 
 class I2CTarget:
     """Seven-bit byte peer for simulation; SDA bit 0, SCL bit 1.
