@@ -1,4 +1,4 @@
-.PHONY: test python-test rtl-test lint formal synth v2-test v2-formal
+.PHONY: test python-test rtl-test lint formal synth v2-test v2-formal v2-capture-test
 
 test: python-test lint rtl-test formal
 
@@ -33,3 +33,9 @@ v2-formal:
 	mkdir -p build
 	yosys -Q -T -q -s formal/v2_engine.ys -l build/formal-v2-engine.log
 	@grep 'Induction step proven: SUCCESS' build/formal-v2-engine.log
+
+v2-capture-test:
+	verilator --lint-only --top-module protocol_capture_v2 src/v2_capture.v
+	$(MAKE) -C test -f Makefile.v2capture
+	yosys -Q -T -q -s formal/v2_capture.ys -l build/formal-v2-capture.log
+	@grep 'Induction step proven: SUCCESS' build/formal-v2-capture.log

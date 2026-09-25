@@ -13,24 +13,28 @@ import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
 CASES = [
-    ("rx_drop", "wire rx_push = execute && fetch_ok", "wire rx_push = 1'b0 && execute && fetch_ok",
+    ("rx_drop", "v2_engine.v", "wire rx_push = execute && fetch_ok", "wire rx_push = 1'b0 && execute && fetch_ok",
      "Makefile.v2", "v2_uart_differential"),
-    ("tx_byte_order", "tx_mem[tx_wr + 4'd2] <= tx_data[23:16]", "tx_mem[tx_wr + 4'd2] <= tx_data[15:8]",
+    ("tx_byte_order", "v2_engine.v", "tx_mem[tx_wr + 4'd2] <= tx_data[23:16]", "tx_mem[tx_wr + 4'd2] <= tx_data[15:8]",
      "Makefile.v2", "v2_fifo_boundary_differential"),
-    ("open_drain_high", " & ~(out_value & open_drain)", "",
+    ("open_drain_high", "v2_engine.v", " & ~(out_value & open_drain)", "",
      "Makefile.v2pins", "v2_pin_transport_safety"),
+    ("wait_edge", "v2_engine.v", "pins_in[wait_pin] == wait_level", "pins_in[wait_pin] != wait_level",
+     "Makefile.v2", "v2_instruction_differential"),
+    ("capture_timestamp", "v2_capture.v", "timestamp + 1'b1", "timestamp + 2'd2",
+     "Makefile.v2capture", "v2_capture_differential"),
 ]
 
 
 def main():
-    source = (ROOT / "src/v2_engine.v").read_text()
     results = []
-    for name, before, after, makefile, case in CASES:
+    for name, filename, before, after, makefile, case in CASES:
+        source = (ROOT / "src" / filename).read_text()
         if source.count(before) != 1:
             raise ValueError(f"mutation anchor is not unique: {name}")
         directory = ROOT / "build/v2-mutations" / name
         directory.mkdir(parents=True, exist_ok=True)
-        mutant = directory / "v2_engine.v"
+        mutant = directory / filename
         mutant.write_text(source.replace(before, after, 1))
         sources = [mutant]
         if makefile.endswith("pins"):
@@ -51,8 +55,9 @@ def main():
                     and cases[0].find("failure") is not None)
         results.append({"mutation": name, "test": case, "detected": detected,
                         "returncode": completed.returncode})
-        divergence = ROOT / "test/output/v2-divergence.json"
-        if divergence.exists() and makefile == "Makefile.v2":
+        divergence = ROOT / "test/output" / ("v2-capture-divergence.json" if makefile == "Makefile.v2capture"
+                                             else "v2-divergence.json")
+        if divergence.exists() and makefile in ("Makefile.v2", "Makefile.v2capture"):
             shutil.copy2(divergence, directory / "divergence.json")
     destination = ROOT / "build/v2-mutations/results.json"
     destination.write_text(json.dumps(results, indent=2) + "\n")
