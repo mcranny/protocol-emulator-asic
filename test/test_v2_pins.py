@@ -12,6 +12,7 @@ from protocol_emulator.v2.isa import assemble
 from protocol_emulator.v2.firmware import uart_rx, uart_tx, spi_target, spi_controller, i2c_controller, i2c_target
 from protocol_emulator.v2.peers import I2CTarget
 from protocol_emulator.v2.host import command_frame, tx_commands, parse_response
+from protocol_emulator.v2.replay import OutputEvent, compile_schedule
 
 
 async def capture_words(host):
@@ -161,6 +162,44 @@ async def v2_capture_host_and_noninterference(dut):
     status, words = await capture_words(h)
     assert status >> 3 & 7 == 7  # disabled captures remain diagnostic-only
     assert status & 7 == 2 and words
+
+
+@cocotb.test()
+async def v2_bounded_firmware_playback(dut):
+    cocotb.start_soon(Clock(dut.clk, 40, unit="ns").start())
+    await reset(dut)
+    h = Host(dut)
+    await h.request(0x21, payload=3)
+    await h.request(0x22, payload=2)
+    events = [OutputEvent(0, 1, 3), OutputEvent(1, 1, 1), OutputEvent(2, 0, 3),
+              OutputEvent(65539, 1, 1), OutputEvent(65542, 0, 0)]
+    end = 65545
+    words = compile_schedule(events, end_cycle=end, owner=3, open_drain=2)
+    await batch(h, [command_frame(1, address=i, value=word) for i, word in enumerate(words)])
+    assert await batch(h, [command_frame(2, address=i) for i in range(len(words))]) == words
+
+    async def observe():
+        # START sets running on its control edge; execution begins next edge.
+        for _ in range(3000):
+            await RisingEdge(dut.clk)
+            await Timer(1, unit="ns")
+            if int(dut.uo_out.value) & 2:
+                break
+        else:
+            raise AssertionError("playback did not start")
+        index = 0
+        for cycle in range(end + 2):
+            await RisingEdge(dut.clk)
+            await Timer(1, unit="ns")
+            if index + 1 < len(events) and cycle == events[index + 1].cycle:
+                index += 1
+            expected = (events[index].outputs, events[index].enables) if cycle <= end else (0, 0)
+            assert (int(dut.uio_out.value), int(dut.uio_oe.value)) == expected, cycle
+            assert bool(int(dut.uo_out.value) & 2) == (cycle <= end), cycle
+            assert not int(dut.uo_out.value) & 8
+    observer = cocotb.start_soon(observe())
+    await h.request(3)
+    await observer
 
 
 @cocotb.test()

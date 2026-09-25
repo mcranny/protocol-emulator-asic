@@ -11,7 +11,8 @@ separate. The candidate contract is in [v2-contract.md](v2-contract.md).
   false starts, framing errors and break recovery.
 - Three RTL differential suites compare per-cycle UART, instruction and FIFO
   boundary behavior against the Python model.
-- Eight pin-driven suites exercise host safety, capture readout/noninterference,
+- Nine pin-driven suites exercise host safety, capture readout/noninterference,
+  bounded firmware playback,
   sustained 115200 full duplex,
   16-byte full-duplex bursts at 1 Mbaud, both SPI roles in all modes and both
   I2C roles with independent peers. The same suite can run on a routed netlist.
@@ -49,10 +50,10 @@ I2C roles use all 64 words. A 128-word implementation has not been selected.
 
 The ISA remains unfrozen. Required work includes complete I2C timing/filtering
 checks, wider protocol error/phase/abort cases, top-level isolation and burst
-atomicity proofs, scheduled faults, complete scenario export, both
-replay forms, the custom protocol demonstration and runnable user workflows.
-End-to-end sampling and capture mutation coverage must also be retained when
-the standalone capture block is integrated with the engines and host.
+atomicity proofs, scheduled faults, complete scenario export, external-stimulus
+replay, the custom protocol demonstration and runnable user workflows.
+[Bounded firmware playback](v2-replay.md) passes model and pin-driven checks;
+its routed-netlist validation remains pending.
 
 Before changed hardware is considered complete, full physical and representative
 routed-netlist acceptance must pass. The final release also needs all required
