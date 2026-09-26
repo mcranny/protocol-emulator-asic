@@ -5,7 +5,8 @@ import pytest
 
 from protocol_emulator.v2.model import Engine
 from protocol_emulator.v2.peers import decode_uart
-from protocol_emulator.v2.scenario import playback, replay, uart_demo, write_artifacts
+from protocol_emulator.v2.scenario import (playback, replay, uart_demo, spi_demo, i2c_demo,
+                                          write_artifacts, prepare_hardware, collect_hardware)
 
 
 @pytest.mark.parametrize("period", [25, 217])
@@ -82,3 +83,63 @@ def test_independent_decoder_false_start_and_truncation():
     assert decode_uart([(10, 0), (12, 1)], end_ns=1000, period_ns=100) == []
     with pytest.raises(ValueError, match="incomplete"):
         decode_uart([(10, 0)], end_ns=900, period_ns=100)
+
+
+@pytest.mark.parametrize('protocol', ['spi', 'i2c'])
+@pytest.mark.parametrize('fault', [False, True])
+def test_spi_i2c_fault_export_replay_and_playback(tmp_path, protocol, fault):
+    scenario = spi_demo(delayed=fault) if protocol == 'spi' else i2c_demo(nack=fault)
+    write_artifacts(scenario, tmp_path / protocol)
+    reloaded = json.loads((tmp_path / f'{protocol}.json').read_text())
+    result = replay(reloaded)
+    frame, = result['decoded']
+    if protocol == 'spi': assert frame['value'] == (0 if fault else 128)
+    else: assert frame['value'] == 0x84 and frame['ack'] is not fault
+    assert len(result['capture']['records']) < 32
+    assert result['capture']['complete'] and not result['capture']['truncated']
+    engine = Engine(capacity=64)
+    engine.owner = scenario['configuration']['owners'][0]
+    engine.open_drain = scenario['configuration']['open_drain'][0]
+    engine.load(playback(scenario))
+    engine.start()
+    events = iter(result['outputs'])
+    expected = next(events)
+    upcoming = next(events, None)
+    for cycle in range(scenario['end_cycle'] + 1):
+        if upcoming and upcoming['cycle'] == cycle:
+            expected, upcoming = upcoming, next(events, None)
+        engine.tick()
+        value, enable = engine.pins
+        assert (value & enable, enable) == (expected['outputs'], expected['enables'])
+    if fault:
+        scenario['fault_schedule'][0]['cycle'] += 100
+        with pytest.raises(ValueError, match='timing|window'):
+            replay(scenario)
+
+
+def test_hardware_workflow_validation_and_epoch_alignment():
+    scenario = spi_demo()
+    class Device:
+        def __init__(self): self.calls = []
+        def __getattr__(self, name):
+            def method(*args):
+                self.calls.append((name, args))
+                if name == 'capture_read':
+                    capture = deepcopy(scenario['expected']['capture'])
+                    capture['trigger_cycle'] += 9000
+                    capture['end_cycle'] += 20000
+                    for record in capture['records']: record['cycle'] += 9000
+                    return capture
+                if name == 'fifo_read': return []
+                if name == 'status': return 0
+            return method
+    device = Device()
+    assert prepare_hardware(device, scenario) == 1
+    assert device.calls[-1] == ('capture_arm', ('pin', 4))
+    assert [name for name, _ in device.calls].count('load') == 2
+    assert collect_hardware(device, scenario)['errors'] == [0, 0]
+    scenario['firmware'][0]['sha256'] = 'bad'
+    device.calls = []
+    with pytest.raises(ValueError, match='hash'):
+        prepare_hardware(device, scenario)
+    assert device.calls == []
