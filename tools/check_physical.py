@@ -36,7 +36,7 @@ def passing_xml(path, required_names=None, minimum=1):
     return len(cases)
 
 
-def check(metrics, config, precheck, gatelevel):
+def check(metrics, config, precheck, gatelevel, *, pin_suites=PIN_SUITES, precheck_suites=None):
     if config.get("CLOCK_PERIOD") != 40:
         raise ValueError("release target must be 40 ns")
     if config.get("MAX_TRANSITION_CONSTRAINT") != 1.5:
@@ -79,8 +79,8 @@ def check(metrics, config, precheck, gatelevel):
                 raise ValueError(f"invalid/violating {kind} timing at {corner}")
             timing[corner][kind + "_slack_ns"] = slack
             timing[corner][kind + "_r2r_slack_ns"] = r2r
-    tests = {"precheck": passing_xml(precheck, minimum=9),
-             "gatelevel": passing_xml(gatelevel, required_names=PIN_SUITES)}
+    tests = {"precheck": passing_xml(precheck, required_names=precheck_suites, minimum=9),
+             "gatelevel": passing_xml(gatelevel, required_names=pin_suites)}
     return dict(stdcell_area_um2=area, core_area_um2=core,
                 utilization_fraction=utilization, timing=timing, electrical=electrical,
                 passing_tests=tests)
