@@ -540,7 +540,8 @@ async def v2_i2c_controller_independent_peer(dut):
 @cocotb.test()
 async def v2_i2c_target_independent_peer(dut):
     cocotb.start_soon(Clock(dut.clk, 40, unit="ns").start())
-    for low_ns, high_ns in ((1300, 1200), (5000, 5000)):
+    for low_ns, high_ns, starved in ((lo, hi, starved) for lo, hi in
+                                     ((1300, 1200), (5000, 5000)) for starved in (False, True)):
         await reset(dut)
         h = Host(dut)
         await h.request(0x21, payload=0x0303)
@@ -548,14 +549,23 @@ async def v2_i2c_target_independent_peer(dut):
         await h.request(0x22, payload=0x010203)
         await h.request(0x23, payload=0x010303)
         await h.request(0x24, payload=3)
-        await load(h, 0, i2c_target())
-        await batch(h, tx_commands(0, [0xA5, 0x81]))
+        await load(h, 0, i2c_target(frequency=100_000 if low_ns == 5000 else 400_000))
+        if not starved:
+            await batch(h, tx_commands(0, [0x25, 0x81]))
         master = [3]
         bus = [3]
+        data_setup = []
         async def resolve_bus():
+            previous, last_data = 3, get_sim_time(unit="ns")
             while True:
                 value, enable = int(dut.uio_out.value), int(dut.uio_oe.value)
                 bus[0] = master[0] & (value | ~enable) & 3
+                now = get_sim_time(unit="ns")
+                if (bus[0] ^ previous) & 1:
+                    last_data = now
+                if bus[0] & 2 and not previous & 2:
+                    data_setup.append(now - last_data)
+                previous = bus[0]
                 dut.uio_in.value = 252 | bus[0]
                 await Timer(10, unit="ns")
         resolver = cocotb.start_soon(resolve_bus())
@@ -565,7 +575,7 @@ async def v2_i2c_target_independent_peer(dut):
             await Timer(duration, unit="ns")
         async def high(sda):
             master[0] = 2 | sda
-            for _ in range(1000):
+            for _ in range(20000):
                 await Timer(10, unit="ns")
                 if bus[0] & 2:
                     break
@@ -602,8 +612,27 @@ async def v2_i2c_target_independent_peer(dut):
         await write(0x55)
         await start()
         await write(0x85)
-        assert await read(True) == 0xA5
+        async def delayed_refill():
+            # The controller has released SCL, but the empty target holds it low.
+            for _ in range(2000):
+                await Timer(10, unit="ns")
+                if master[0] & 2 and not bus[0] & 2:
+                    break
+            else:
+                raise AssertionError("empty target did not stretch SCL")
+            await Timer(20000, unit="ns")
+            assert not bus[0] & 2
+            await batch(h, tx_commands(0, [0x25, 0x81]))
+        refill = cocotb.start_soon(delayed_refill()) if starved else None
+        before_read = len(data_setup)
+        assert await read(True) == 0x25
         assert await read(False) == 0x81
+        if refill is not None:
+            await refill
+        assert min(data_setup) >= (250 if low_ns == 5000 else 100)
+        # First data bit changes SDA while SCL is held low, including a host
+        # refill after stretching. Include the profile's rise-time allowance.
+        assert data_setup[before_read] >= (1250 if low_ns == 5000 else 400)
         await drive(0, low_ns)
         await high(0)
         await drive(3, 2000)
