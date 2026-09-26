@@ -219,6 +219,7 @@ def prepare_hardware(device, scenario):
         device.reset(engine)
     for engine in range(2):
         device.configure(engine, 0, 0)
+    device.configure_filter(0)
     config = scenario["configuration"]
     for engine, image in enumerate(scenario["firmware"]):
         device.configure(engine, config["owners"][engine], config["open_drain"][engine])

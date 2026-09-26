@@ -3,7 +3,7 @@ import pytest
 
 from protocol_emulator.v2.firmware import i2c_controller, i2c_target
 from protocol_emulator.v2.isa import assemble
-from protocol_emulator.v2.model import Engine, Watch
+from protocol_emulator.v2.model import Engine, Watch, InputFilter
 from protocol_emulator.v2.peers import I2CTarget
 
 
@@ -193,15 +193,18 @@ def test_controller_combined_with_byte_peer(write_count, read_count, synchroniza
 @pytest.mark.parametrize("frequency,minimum_low,minimum_high", [
     (100_000, 4700, 4000), (400_000, 1300, 600)])
 @pytest.mark.parametrize("synchronization", [2, 3])
-def test_controller_clock_timing_budget(frequency, minimum_low, minimum_high, synchronization):
+@pytest.mark.parametrize("filtered", [False, True])
+def test_controller_clock_timing_budget(frequency, minimum_low, minimum_high, synchronization, filtered):
     # UM10204 rev.7 table 11: digital pulse lengths and frequency ceiling.
     # Pad edge slopes and SDA setup/hold are separate acceptance requirements.
-    source = i2c_controller(write_count=2, read_count=2, frequency=frequency)
+    source = i2c_controller(write_count=2, read_count=2, frequency=frequency, filtered=filtered)
     assert len(assemble(source)) <= 64
     e = loaded(source)
     e.push([0x55, 0xAA])
     peer = I2CTarget(read_data=b"\x81\x55")
     pipe = [3] * synchronization
+    filter_model = InputFilter()
+    for _ in range(4): filter_model.tick(3)
     edges, previous = [], 3
     for cycle in range(30000):
         value, enable = e.pins
@@ -212,7 +215,8 @@ def test_controller_clock_timing_budget(frequency, minimum_low, minimum_high, sy
             edges.append((cycle, bool(bus & 2)))
         previous = bus
         pipe.append(bus)
-        e.tick(pipe.pop(0))
+        sampled = pipe.pop(0)
+        e.tick(filter_model.tick(sampled) if filtered else sampled)
         if not e.running:
             break
     assert not e.running and not e.errors
