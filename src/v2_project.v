@@ -235,4 +235,53 @@ module tt_um_mcranny_protocol_emulator_v2 (
         .truncated(capture_truncated), .reason(capture_reason)
     );
     wire _unused = &{ui_in[7:3],1'b0};
+`ifdef FORMAL_INTEGRATION
+    // Compositional proof: engine output masking is proved in v2_engine.ys.
+    // Host transactions are otherwise arbitrary, including malformed commands.
+    // Capture/engine state is abstracted; these assumptions state only the
+    // separately proved output contract and the reset behavior of the host.
+    reg formal_past_valid;
+    initial formal_past_valid = 0;
+    always @* begin
+        assume((oe0 & ~owner0) == 0 && (oe1 & ~owner1) == 0);
+        assume((oe0 & out0 & od0) == 0 && (oe1 & out1 & od1) == 0);
+        if (!reset_n) assume(!cmd_valid && !frame_error);
+        assert((uio_oe & uio_out & (od0 | od1)) == 0);
+        if (!rst_n || !ena) assert(uio_oe == 0);
+    end
+    always @(posedge clk) begin
+        formal_past_valid <= 1;
+        if (!formal_past_valid) assume(!rst_n);
+        if (formal_past_valid && rst_n) begin
+            assert((owner0 & owner1) == 0);
+            assert((od0 & ~owner0) == 0 && (od1 & ~owner1) == 0);
+            assert((oe0 & oe1) == 0);
+            if (accepted && cmd == 8'h20) begin
+                assert((!payload[0] || start0) && (!payload[1] || start1));
+                assert(!(running & payload[1:0]));
+                assert((!payload[0] || start_ready0) && (!payload[1] || start_ready1));
+            end
+            if (cmd_valid && cmd == 8'h20 && reject) assert(!start0 && !start1);
+            if (accepted && tx_command)
+                assert({1'b0,txlevel} + {4'b0,tx_count} <= 16);
+            if (accepted && cmd == 1) assert(!selected_running);
+            if (cmd == 2 && selected_running) assert(reject);
+            if ($past(rst_n)) begin
+                if (!$past(ena && accepted && cmd == 8'h21))
+                    assert($stable({owner0,owner1,od0,od1}));
+                if ($past(ena && accepted && cmd == 8'h21 && !select_engine))
+                    assert($stable({owner1,od1}));
+                if ($past(ena && accepted && cmd == 8'h21 && select_engine))
+                    assert($stable({owner0,od0}));
+                if ($past(!ena || frame_error)) assert(!pending_rx);
+            end
+        end
+    end
+    // FIFO readiness is a combinational part of the proved engine contract.
+    always @* begin
+        assume(txlevel0 <= 16 && txlevel1 <= 16);
+        assume(ready0 == (tx_count != 0 && {1'b0,txlevel0} + {4'b0,tx_count} <= 16));
+        assume(ready1 == (tx_count != 0 && {1'b0,txlevel1} + {4'b0,tx_count} <= 16));
+    end
+`endif
 endmodule
