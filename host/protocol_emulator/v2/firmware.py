@@ -109,7 +109,7 @@ def sizes():
     return {name: len(assemble(source)) for name, source in sources.items()}
 
 
-def i2c_controller(address=0x42, write_count=1, read_count=0, half=None, frequency=400_000):
+def i2c_controller(address=0x42, write_count=1, read_count=0, half=None, frequency=400_000, filtered=False):
     """SDA=0/SCL=1, both open-drain. Optional combined write/repeated-start/read.
 
     Byte counts are firmware parameters. TX contains write data; RX contains
@@ -123,9 +123,13 @@ def i2c_controller(address=0x42, write_count=1, read_count=0, half=None, frequen
         raise ValueError("unsupported I2C frequency")
     if half is None:
         half, high = (120, 121) if frequency == 100_000 else (32, 22)
+        if filtered:
+            # The optional three-sample input filter adds three observation
+            # cycles to each WAIT for the released clock. Preserve wire timing.
+            high -= 3
     else:
         high = half
-    if not write_count + read_count or half < 32:
+    if type(filtered) is not bool or not write_count + read_count or half < 32:
         raise ValueError("unsupported I2C timing/empty transaction")
     lines = ["WAIT 0, 1, 65535", "CALL start"]
     if write_count:

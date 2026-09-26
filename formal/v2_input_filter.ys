@@ -1,0 +1,6 @@
+read_verilog -formal src/v2_input_filter.v
+prep -top protocol_input_filter_v2
+flatten
+async2sync
+dffunmap
+sat -seq 5 -tempinduct -maxsteps 16 -set-assumes -prove-asserts -verify

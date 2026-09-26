@@ -110,6 +110,15 @@ class Device:
             raise ValueError("invalid ownership/open-drain masks")
         return self.request(0x21, engine, value=owner | open_drain << 8)
 
+    def configure_filter(self, mask):
+        if type(mask) is not int or not 0 <= mask <= 255:
+            raise ValueError("invalid input filter mask")
+        if not self.capabilities()["features"] & 32:
+            raise DeviceError("input filtering is not supported")
+        self.request(0x25, value=mask)
+        if self.request(0x26) != mask:
+            raise DeviceError("input filter readback failed")
+
     def start(self, mask=3):
         if mask not in (1, 2, 3):
             raise ValueError("invalid start mask")

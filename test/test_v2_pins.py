@@ -141,7 +141,7 @@ async def v2_capture_host_and_noninterference(dut):
     for enabled in (False, True):
         await reset(dut)
         h = Host(dut)
-        assert await h.request(11) == 0x20001F
+        assert await h.request(11) == 0x20003F
         await h.request(0x21, payload=1)
         await load(h, 0, "DRIVE 0, 1\nMARK 1\nDELAY 8\nSET 1, 1\nDELAY 8\nSET 1, 0\nDELAY 8\nHALT")
         if enabled:
@@ -500,7 +500,8 @@ async def v2_i2c_controller_independent_peer(dut):
         await reset(dut)
         h = Host(dut)
         await h.request(0x21, payload=0x0303)
-        await load(h, 0, i2c_controller(write_count=writes, read_count=reads, frequency=frequency))
+        await h.request(0x25, payload=3)
+        await load(h, 0, i2c_controller(write_count=writes, read_count=reads, frequency=frequency, filtered=True))
         await batch(h, tx_commands(0, [0x55, 0xA5][:writes]))
         peer = I2CTarget(read_data=bytes([0x81, 0x55, 0xA5]))
         edges = []
@@ -543,6 +544,7 @@ async def v2_i2c_target_independent_peer(dut):
         await reset(dut)
         h = Host(dut)
         await h.request(0x21, payload=0x0303)
+        await h.request(0x25, payload=3)
         await h.request(0x22, payload=0x010203)
         await h.request(0x23, payload=0x010303)
         await h.request(0x24, payload=3)
@@ -572,8 +574,8 @@ async def v2_i2c_target_independent_peer(dut):
             await Timer(high_ns - 10, unit="ns")
             return bus[0] & 1
         async def start():
-            await drive(3, 1500)
-            await drive(2, 1500)
+            await drive(3, 5000 if low_ns == 5000 else 1500)
+            await drive(2, 5000 if low_ns == 5000 else 1500)
             await drive(0, low_ns)
         async def write(value):
             for bit in range(7, -1, -1):
@@ -785,3 +787,52 @@ async def v2_spi_i2c_fault_scenarios(dut):
         decoded = decode_spi(levels, initial=initial) if number < 2 else decode_i2c(levels, initial=initial)
         assert decoded == scenario['expected']['decoded']
         write_artifacts(scenario, Path(__file__).parent / 'output' / f'v2-protocol-scenario-{number}')
+
+
+@cocotb.test()
+async def v2_input_filter_spikes_and_bypass(dut):
+    cocotb.start_soon(Clock(dut.clk, 40, unit='ns').start())
+    for idle in (0, 1):
+        await reset(dut)
+        dut.uio_in.value = idle
+        h = Host(dut)
+        await h.request(0x21, payload=4)
+        await load(h, 0, f'LI 1, 65535\nWAITFOR 0, {1-idle}\nDRIVE 4, 4\nJMP 3')
+        await h.request(0x25, payload=1)
+        assert await h.request(0x26) == 1
+        await h.request(3)
+        await h.request(0x25, payload=0, reject=True)
+        assert await h.request(0x26) == 1
+        for duration in (1, 20, 39, 40, 49, 50):
+            for phase in (1, 17, 39):
+                await RisingEdge(dut.clk)
+                await Timer(phase, unit='ns')
+                dut.uio_in.value = 1 - idle
+                await Timer(duration, unit='ns')
+                dut.uio_in.value = idle
+                await Timer(800, unit='ns')
+                assert int(dut.uio_oe.value) == 0, (idle, duration, phase)
+        # A stable transition must still reach the firmware, with bounded
+        # synchronizer/filter/instruction latency; no timeout-based suppression.
+        await RisingEdge(dut.clk)
+        await Timer(13, unit='ns')
+        origin = int(get_sim_time(unit='ns'))
+        dut.uio_in.value = 1 - idle
+        for _ in range(40):
+            await Timer(10, unit='ns')
+            if int(dut.uio_oe.value) == 4: break
+        else: raise AssertionError('stable input did not pass filter')
+        assert 200 <= int(get_sim_time(unit='ns')) - origin <= 320
+        assert await h.request(6) == 1
+        await h.request(4)
+        await h.request(5)
+        dut.uio_in.value = idle
+        await h.request(0x25, payload=0)
+        await h.request(3)
+        await RisingEdge(dut.clk)
+        await Timer(17, unit='ns')
+        dut.uio_in.value = 1 - idle
+        await Timer(50, unit='ns')
+        dut.uio_in.value = idle
+        await Timer(800, unit='ns')
+        assert int(dut.uio_oe.value) == 4
