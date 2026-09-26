@@ -505,15 +505,32 @@ async def v2_i2c_controller_independent_peer(dut):
         await load(h, 0, i2c_controller(write_count=writes, read_count=reads, frequency=frequency, filtered=True))
         await batch(h, tx_commands(0, [0x55, 0xA5][:writes]))
         peer = I2CTarget(read_data=bytes([0x81, 0x55, 0xA5]))
-        edges = []
+        edges, data_setup, start_setup, start_hold, stop_setup = [], [], [], [], []
         async def resolve_bus():
             previous = 3
+            last_data = last_rise = get_sim_time(unit="ns")
+            pending_start = None
             while True:
                 await Timer(10, unit="ns")
                 value, enable = int(dut.uio_out.value), int(dut.uio_oe.value)
                 bus = (value | ~enable) & ~peer.drive_low & 3
+                now = get_sim_time(unit="ns")
+                if (bus ^ previous) & 1:
+                    last_data = now
+                    if bus & previous & 2:
+                        if bus & 1:
+                            stop_setup.append(now - last_rise)
+                        else:
+                            start_setup.append(now - last_rise)
+                            pending_start = now
                 if (bus ^ previous) & 2:
-                    edges.append((get_sim_time(unit="ns"), bool(bus & 2)))
+                    edges.append((now, bool(bus & 2)))
+                    if bus & 2:
+                        data_setup.append(now - last_data)
+                        last_rise = now
+                    elif pending_start is not None:
+                        start_hold.append(now - pending_start)
+                        pending_start = None
                 previous = bus
                 peer.observe(bus)
                 dut.uio_in.value = 252 | ((value | ~enable) & ~peer.drive_low & 3)
@@ -536,6 +553,10 @@ async def v2_i2c_controller_independent_peer(dut):
         assert min(low) >= (4700 if frequency == 100_000 else 1300)
         assert min(high) >= (4000 if frequency == 100_000 else 600)
         assert 1e9 / frequency <= fastest <= 1.04e9 / frequency
+        assert min(data_setup) >= (250 if frequency == 100_000 else 100)
+        assert min(start_setup) >= (4700 if frequency == 100_000 else 600)
+        assert min(start_hold) >= (4000 if frequency == 100_000 else 600)
+        assert min(stop_setup) >= (4000 if frequency == 100_000 else 600)
 
 
 @cocotb.test()
