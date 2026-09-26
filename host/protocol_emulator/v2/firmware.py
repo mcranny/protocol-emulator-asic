@@ -184,3 +184,21 @@ def i2c_target(address=0x42):
     lines = [line.replace("CALL high", "WAITBR interrupted, 1, 1")
              .replace("CALL low", "WAITBR interrupted, 1, 0") for line in lines]
     return "\n".join(lines)
+
+
+def i2c_bus_clear(frequency=100_000):
+    """Nine open-drain SCL pulses followed by STOP; fail if either line stays low.
+
+    SDA=0/SCL=1. Run only after stopping the ordinary controller firmware.
+    A peer that holds SCL low cannot be recovered by clocking; the bounded WAIT
+    releases both outputs with the normal timeout error in that case.
+    """
+    if frequency not in (100_000, 400_000):
+        raise ValueError("unsupported I2C frequency")
+    low, high = (125, 125) if frequency == 100_000 else (33, 30)
+    return "\n".join([
+        "DRIVE 1, 3", "LI 0, 9", f"pulse: DELAY {low}", "SET 2, 2",
+        "WAIT 1, 1, 65535", f"DELAY {high}", "SET 2, 0", "DJNZ 0, pulse",
+        "SET 1, 0", f"DELAY {low}", "SET 2, 2", "WAIT 1, 1, 65535",
+        f"DELAY {high}", "SET 1, 1", "WAIT 0, 1, 65535", "HALT",
+    ])
