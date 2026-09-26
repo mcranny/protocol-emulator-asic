@@ -53,6 +53,8 @@ jobs:
             build/formal-engine.log
             build/formal-v2-engine.log
             build/formal-v2-capture.log
+            build/formal-v2-integration.log
+            build/formal-v2-input-filter.log
             build/python-results.xml
             build/rtl-evidence.json
             build/v2-mutations/results.json
