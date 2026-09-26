@@ -17,6 +17,7 @@ from protocol_emulator.v2.scenario import uart_demo, spi_demo, i2c_demo, write_a
 from protocol_emulator.v2.peers import decode_uart as decode_uart_events, decode_spi, decode_i2c
 from protocol_emulator.v2.model import FIRMWARE
 from protocol_emulator.model import TIMEOUT
+from protocol_emulator.v2.custom_protocol import transmit as custom_tx, receive as custom_rx, decode as custom_decode
 
 
 async def capture_words(host):
@@ -835,3 +836,34 @@ async def v2_input_filter_spikes_and_bypass(dut):
         dut.uio_in.value = idle
         await Timer(800, unit='ns')
         assert int(dut.uio_oe.value) == 4
+
+
+@cocotb.test()
+async def v2_custom_pulse_protocol(dut):
+    cocotb.start_soon(Clock(dut.clk, 40, unit='ns').start())
+    for value in (0, 10, 15):
+        await reset(dut)
+        h = Host(dut)
+        dut.uio_in.value = 0
+        await h.request(0x21, payload=1)
+        for engine, words in enumerate((custom_tx(value), custom_rx())):
+            await batch(h, [command_frame(1, engine, i, word) for i, word in enumerate(words)])
+            assert await batch(h, [command_frame(2, engine, i) for i in range(len(words))]) == words
+        events = []
+        async def loopback():
+            cycle = 0
+            while True:
+                await RisingEdge(dut.clk)
+                await Timer(1, unit='ns')
+                out, oe = int(dut.uio_out.value), int(dut.uio_oe.value)
+                bus = out & oe & 1
+                if not events or events[-1][1] != bus: events.append((cycle, bus))
+                dut.uio_in.value = bus
+                cycle += 1
+        observer = cocotb.start_soon(loopback())
+        await h.request(0x20, payload=3)
+        await Timer(20_000, unit='ns')
+        observer.cancel()
+        assert custom_decode(events) == value
+        assert await h.request(0x13, addr=128) & 65535 == 0x5000 | value
+        assert await h.request(6) == await h.request(6, addr=128) == 0
