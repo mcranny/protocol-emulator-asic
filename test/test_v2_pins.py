@@ -9,12 +9,14 @@ from cocotb.utils import get_sim_time
 
 from test import Host, reset, capture, decode_uart
 from protocol_emulator.v2.isa import assemble
-from protocol_emulator.v2.firmware import uart_rx, uart_tx, spi_target, spi_controller, i2c_controller, i2c_target
+from protocol_emulator.v2.firmware import uart_rx, uart_tx, spi_target, spi_controller, i2c_controller, i2c_target, i2c_bus_clear
 from protocol_emulator.v2.peers import I2CTarget
 from protocol_emulator.v2.host import command_frame, tx_commands, parse_response
 from protocol_emulator.v2.replay import OutputEvent, compile_schedule
 from protocol_emulator.v2.scenario import uart_demo, spi_demo, i2c_demo, write_artifacts
 from protocol_emulator.v2.peers import decode_uart as decode_uart_events, decode_spi, decode_i2c
+from protocol_emulator.v2.model import FIRMWARE
+from protocol_emulator.model import TIMEOUT
 
 
 async def capture_words(host):
@@ -604,6 +606,114 @@ async def v2_i2c_target_independent_peer(dut):
         await drive(3, 2000)
         assert await h.request(0x13) & 65535 == 0x55
         assert await h.request(6) == 1
+        assert int(dut.uio_oe.value) == 0
+        resolver.cancel()
+
+
+@cocotb.test()
+async def v2_protocol_faults(dut):
+    """CS aborts, underrun and externally imposed I2C faults through pins only."""
+    cocotb.start_soon(Clock(dut.clk, 40, unit="ns").start())
+    for mode in range(4):
+        await reset(dut)
+        h = Host(dut)
+        idle = (mode >> 1) << 1
+        dut.uio_in.value = 4 | idle
+        await h.request(0x21, payload=8)
+        await h.request(0x22, payload=0x040404)
+        await h.request(0x24, payload=1)
+        await load(h, 0, spi_target(mode))
+        for partial in (0, 3, 7):
+            await h.request(5)
+            await batch(h, tx_commands(0, [0xA5, 0x5A]))
+            await h.request(3)
+            dut.uio_in.value = idle
+            await Timer(1203, unit="ns")
+            for _ in range(partial):
+                dut.uio_in.value = idle ^ 2
+                await Timer(500, unit="ns")
+                dut.uio_in.value = idle
+                await Timer(500, unit="ns")
+            dut.uio_in.value = 4 | idle
+            await Timer(1200, unit="ns")
+            assert int(dut.uio_oe.value) == 0
+            assert await h.request(6) == 1
+            assert await h.request(8) >> 5 == 0
+            # A fresh CS assertion must consume the next TX item and receive
+            # a complete byte, with no partial data retained from the abort.
+            dut.uio_in.value = idle | 1
+            await Timer(1200, unit="ns")
+            got = 0
+            for _ in range(8):
+                if not mode & 1: got = got << 1 | (int(dut.uio_out.value) >> 3 & 1)
+                dut.uio_in.value = (idle ^ 2) | 1
+                await Timer(500, unit="ns")
+                if mode & 1: got = got << 1 | (int(dut.uio_out.value) >> 3 & 1)
+                dut.uio_in.value = idle | 1
+                await Timer(500, unit="ns")
+            dut.uio_in.value = 4 | idle
+            await Timer(1200, unit="ns")
+            assert got == 0x5A
+            assert await h.request(0x13) & 65535 == 255
+            assert await h.request(6) == 1 and int(dut.uio_oe.value) == 0
+        await h.request(5)
+        await h.request(3)
+        dut.uio_in.value = idle
+        await Timer(1200, unit="ns")
+        dut.uio_in.value = idle ^ 2
+        await Timer(1200, unit="ns")
+        status = await h.request(6)
+        assert not status & 1 and status >> 1 & FIRMWARE
+        assert int(dut.uio_oe.value) == 0
+
+    for fault in ('nack', 'arbitration', 'sda_stuck', 'scl_stuck'):
+        await reset(dut)
+        h = Host(dut)
+        await h.request(0x21, payload=0x0303)
+        await load(h, 0, i2c_controller(frequency=400_000))
+        await batch(h, tx_commands(0, [0x55]))
+        async def resolve_fault():
+            started = False
+            while True:
+                out, oe = int(dut.uio_out.value), int(dut.uio_oe.value)
+                assert out & oe & 3 == 0
+                bus = (out | ~oe) & 3
+                started |= bool(oe & 3)
+                if fault == 'sda_stuck' or (fault == 'arbitration' and started): bus &= 2
+                elif fault == 'scl_stuck': bus &= 1
+                dut.uio_in.value = 252 | bus
+                await Timer(10, unit="ns")
+        resolver = cocotb.start_soon(resolve_fault())
+        await h.request(3)
+        await Timer(2_700_000 if fault.endswith('stuck') else 60_000, unit="ns")
+        status = await h.request(6)
+        assert not status & 1 and status >> 1 & (TIMEOUT if fault.endswith('stuck') else FIRMWARE)
+        assert int(dut.uio_oe.value) == 0
+        assert await h.request(8) >> 5 == 0
+        resolver.cancel()
+
+
+    for frequency in (100_000, 400_000):
+        await reset(dut)
+        h = Host(dut)
+        await h.request(0x21, payload=0x0303)
+        await load(h, 0, i2c_bus_clear(frequency))
+        pulses = [0]
+        async def recovering_peer():
+            previous = 2
+            while True:
+                out, oe = int(dut.uio_out.value), int(dut.uio_oe.value)
+                bus = (out | ~oe) & 3
+                if bus & 2 and not previous & 2: pulses[0] += 1
+                if pulses[0] < 9: bus &= 2
+                dut.uio_in.value = 252 | bus
+                previous = bus
+                await Timer(10, unit='ns')
+        resolver = cocotb.start_soon(recovering_peer())
+        await h.request(3)
+        await Timer(150_000, unit='ns')
+        assert await h.request(6) == 0
+        assert pulses[0] == 10
         assert int(dut.uio_oe.value) == 0
         resolver.cancel()
 
