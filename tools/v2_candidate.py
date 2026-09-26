@@ -22,7 +22,8 @@ def prepare(destination):
     if set(overrides) - {"CTS_DISTANCE_BETWEEN_BUFFERS",
                          "GRT_DESIGN_REPAIR_MAX_WIRE_LENGTH",
                          "PL_MAX_DISPLACEMENT_X",
-                         "PL_MAX_DISPLACEMENT_Y"}:
+                         "PL_MAX_DISPLACEMENT_Y",
+                         "CTS_APPLY_NDR"}:
         raise ValueError("unexpected V2 physical override; review required")
     config.update(overrides)
     destination = Path(destination).resolve()
