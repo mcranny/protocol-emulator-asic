@@ -34,6 +34,56 @@ def decode_uart(changes, *, end_ns, period_ns, pin=0, initial=255):
     return frames
 
 
+def decode_spi(changes, *, mode=0, data_pin=3, clock_pin=1, select_pin=2, initial=255):
+    """Decode selected eight-bit SPI transfers directly from bus edges."""
+    if mode not in range(4):
+        raise ValueError("invalid SPI mode")
+    previous, bits, frames, start = initial, [], [], None
+    for time, bus in changes:
+        selected, was_selected = not bus & (1 << select_pin), not previous & (1 << select_pin)
+        if selected and not was_selected:
+            bits, start = [], time
+        if selected and (bus ^ previous) & (1 << clock_pin):
+            leading = bool(bus & (1 << clock_pin)) != bool(mode >> 1)
+            if leading != bool(mode & 1):
+                bits.append(bus >> data_pin & 1)
+                if len(bits) == 8:
+                    frames.append({"start_ns": start, "sample_ns": time,
+                                   "value": sum(bit << (7 - i) for i, bit in enumerate(bits))})
+                    bits = []
+        if not selected and was_selected and bits:
+            raise ValueError("incomplete SPI byte")
+        previous = bus
+    if bits:
+        raise ValueError("incomplete SPI byte")
+    return frames
+
+
+def decode_i2c(changes, *, initial=3):
+    """Decode SDA=0/SCL=1 address/data bytes and their ninth-clock ACK."""
+    previous, active, address = initial & 3, False, True
+    bits, frames = [], []
+    for time, bus in changes:
+        bus &= 3
+        if bus & 2 and previous & 2 and (bus ^ previous) & 1:
+            if not bus & 1:
+                active, address, bits = True, True, []
+            else:
+                # STOP may be prepared with a partial bit after the final ACK.
+                active, bits = False, []
+        elif active and bus & 2 and not previous & 2:
+            bits.append(bus & 1)
+            if len(bits) == 9:
+                frames.append({"ack_ns": time, "address": address,
+                               "value": sum(bit << (7 - i) for i, bit in enumerate(bits[:8])),
+                               "ack": bits[8] == 0})
+                bits, address = [], False
+        previous = bus
+    if active:
+        raise ValueError("I2C transaction has no STOP")
+    return frames
+
+
 class I2CTarget:
     """Seven-bit byte peer for simulation; SDA bit 0, SCL bit 1.
 

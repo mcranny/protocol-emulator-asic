@@ -14,7 +14,7 @@ from .capture import Sample
 from .firmware import uart_rx
 from .isa import assemble, decode
 from .model import Device
-from .peers import decode_uart
+from .peers import decode_uart, decode_spi, decode_i2c
 from .replay import OutputEvent, compile_schedule
 
 
@@ -69,22 +69,31 @@ def validate(scenario, *, require_expected=True):
         for edge in scenario["external_stimulus"]:
             time = _integer(edge["time_ns"], 0, end * 40, "external edge time")
             _integer(edge["inputs"], 0, 255, "external inputs")
-            if (edge["inputs"] ^ inputs) & owned:
-                raise ValueError("external stimulus may change only unowned pins")
+            if (edge["inputs"] ^ inputs) & owned & ~(config["open_drain"][0] | config["open_drain"][1]):
+                raise ValueError("external stimulus may change only unowned or open-drain pins")
             if time <= previous:
                 raise ValueError("external edges must have increasing timestamps")
             previous = time
         trigger = scenario["capture"]
         device.capture.arm(Sample(inputs, 0, 0), trigger["mode"], trigger["mask"])
         decoder = scenario["decoder"]
-        if decoder["protocol"] != "uart8n1":
+        protocol = decoder["protocol"]
+        if protocol not in ("uart8n1", "spi", "i2c"):
             raise ValueError("unsupported scenario decoder")
-        _integer(decoder["pin"], 0, 7, "decoder pin")
-        if not owned & (1 << decoder["pin"]):
-            raise ValueError("scenario decoder requires an owned output pin")
-        _integer(decoder["period_ns"], 800, 2_400_000, "decoder period")
+        if protocol == "uart8n1":
+            _integer(decoder["pin"], 0, 7, "decoder pin")
+            if not owned & (1 << decoder["pin"]):
+                raise ValueError("scenario decoder requires an owned output pin")
+            _integer(decoder["period_ns"], 800, 2_400_000, "decoder period")
+        elif protocol == "spi":
+            _integer(decoder["mode"], 0, 3, "SPI mode")
+            _integer(decoder["expected_value"], 0, 255, "SPI expected byte")
+            if owned != 8 or any(config["open_drain"]):
+                raise ValueError("SPI scenario requires MISO-only ownership")
+        elif owned != 1 or config["open_drain"] != config["owners"]:
+            raise ValueError("I2C scenario requires open-drain SDA ownership")
         for fault in scenario["fault_schedule"]:
-            if fault["kind"] != "uart_stop_low":
+            if fault["kind"] != {"uart8n1": "uart_stop_low", "spi": "spi_response_delay", "i2c": "i2c_nack"}[protocol]:
                 raise ValueError("unsupported fault recipe")
             _integer(fault["engine"], 0, 1, "fault engine")
             start = _integer(fault["cycle"], 0, end, "fault cycle")
@@ -136,10 +145,32 @@ def simulate(scenario):
     result = {"capture": capture, "outputs": [asdict(event) for event in outputs],
             "rx": [[list(item) for item in engine.rx] for engine in device.engines],
             "errors": [engine.errors for engine in device.engines],
-            "decoded": decode_uart(levels, end_ns=(scenario["end_cycle"] + 1) * 40,
-                                   period_ns=decoder["period_ns"], pin=decoder["pin"],
-                                   initial=scenario["initial_state"]["inputs"])}
+            "decoded": []}
+    initial = scenario["initial_state"]["inputs"]
+    protocol = decoder["protocol"]
+    if protocol == "uart8n1":
+        result["decoded"] = decode_uart(levels, end_ns=(scenario["end_cycle"] + 1) * 40,
+                                        period_ns=decoder["period_ns"], pin=decoder["pin"], initial=initial)
+    elif protocol == "spi":
+        result["decoded"] = decode_spi(levels, mode=decoder["mode"], initial=initial)
+    else:
+        result["decoded"] = decode_i2c(levels, initial=initial)
     faults = scenario["fault_schedule"]
+    if protocol != "uart8n1":
+        failed = [frame for frame in result["decoded"] if
+                  (frame["value"] != decoder["expected_value"] if protocol == "spi" else not frame["ack"])]
+        if len(failed) != len(faults):
+            raise ValueError("decoded protocol errors do not match the fault schedule")
+        for frame, fault in zip(failed, faults):
+            if not config["owners"][fault["engine"]]:
+                raise ValueError("fault has no output ownership")
+            if protocol == "i2c" and not fault["cycle"] * 40 <= frame["ack_ns"] < (fault["cycle"] + fault["duration_cycles"]) * 40:
+                raise ValueError("NACK outside scheduled fault window")
+            if protocol == "spi":
+                edge = (fault["cycle"] + fault["duration_cycles"]) * 40
+                if not any(event.cycle * 40 == edge and event.outputs & 8 for event in outputs):
+                    raise ValueError("delayed response does not match fault timing")
+        return result
     failed = [frame for frame in result["decoded"] if frame["framing_error"]]
     if len(failed) != len(faults):
         raise ValueError("decoded framing errors do not match the fault schedule")
@@ -169,6 +200,57 @@ def playback(scenario):
                             end_cycle=scenario["end_cycle"],
                             owner=config["owners"][0] | config["owners"][1],
                             open_drain=config["open_drain"][0] | config["open_drain"][1])
+
+
+def prepare_hardware(device, scenario):
+    """Validate, load/readback and arm a controlled scenario through the V2 API.
+
+    The caller must arrange the recorded external stimulus relative to the
+    physical running indication, then call device.start(start_mask). SPI host
+    transaction completion is not the execution epoch and provides no precise
+    timing trigger for a software-only external stimulus source.
+    """
+    replay(scenario)  # Reject invalid artifacts before any device operation.
+    if scenario["capture"]["mode"] == "immediate":
+        raise ValueError("hardware scenario requires an execution-relative trigger")
+    device.check_version()
+    for engine in range(2):
+        device.stop(engine)
+        device.reset(engine)
+    for engine in range(2):
+        device.configure(engine, 0, 0)
+    config = scenario["configuration"]
+    for engine, image in enumerate(scenario["firmware"]):
+        device.configure(engine, config["owners"][engine], config["open_drain"][engine])
+        device.load(engine, image["words"])
+        device.fifo_write(engine, scenario["tx"][engine])
+    device.capture_arm(scenario["capture"]["mode"], scenario["capture"]["mask"])
+    return config["start_mask"]
+
+
+def collect_hardware(device, scenario):
+    """Freeze/read capture and compare every event relative to its trigger.
+
+    Call after the controlled peer has finished the recorded window. The host
+    stop latency can extend the quiet tail, but no changed event may be omitted.
+    This checks synchronized observations, not analog timing or an independent
+    peer's raw-pin decoder; pin-level acceptance checks both separately.
+    """
+    replay(scenario)
+    device.capture_stop()
+    actual = device.capture_read()
+    expected = scenario["expected"]["capture"]
+    normalize = lambda trace: [dict(r, cycle=r["cycle"] - trace["trigger_cycle"]) for r in trace["records"]]
+    if not actual["complete"] or actual["truncated"] or normalize(actual) != normalize(expected):
+        raise ValueError("hardware capture differs from scenario")
+    received = [device.fifo_read(engine, len(records))
+                for engine, records in enumerate(scenario["expected"]["rx"])]
+    if [[list(record) for record in records] for records in received] != scenario["expected"]["rx"]:
+        raise ValueError("hardware RX differs from scenario")
+    errors = [device.status(engine) >> 1 for engine in range(2)]
+    if errors != scenario["expected"]["errors"]:
+        raise ValueError("hardware errors differ from scenario")
+    return {"capture": actual, "rx": received, "errors": errors}
 
 
 def uart_demo(*, bad_stop=True, period=217, value=0xA5, seed=0xD3B6):
@@ -212,6 +294,81 @@ def uart_demo(*, bad_stop=True, period=217, value=0xA5, seed=0xD3B6):
     return scenario
 
 
+def _scheduled_demo(events, edges, *, owner, open_drain, initial, end, decoder, fault, capture):
+    # Leave three cycles for release and synchronized feedback to enter capture.
+    words = [compile_schedule(events, end_cycle=end - 4, owner=owner, open_drain=open_drain),
+             assemble("HALT", capacity=64)]
+    scenario = {"schema": "protocol-emulator-scenario", "version": 1,
+                "clock_hz": 25_000_000, "host_version": 2, "isa_version": 2,
+                "program_words": 64, "seed": 0, "end_cycle": end,
+                "configuration": {"owners": [owner, 0], "open_drain": [open_drain, 0], "start_mask": 1},
+                "initial_state": {"inputs": initial, "synchronizers": [initial, initial],
+                                  "engines": "reset", "outputs": 0, "enables": 0},
+                "firmware": [{"words": image, "sha256": firmware_hash(image)} for image in words],
+                "tx": [[], []], "external_stimulus": edges, "fault_schedule": fault,
+                "capture": capture, "decoder": decoder}
+    scenario["expected"] = simulate(scenario)
+    validate(scenario)
+    return scenario
+
+
+def spi_demo(*, delayed=True):
+    """A scheduled MISO response misses the first sample of a mode-0 byte.
+
+    External SCK is exactly 1 MHz, offset 13 ns from the system clock. The
+    recorded controller stimulus is replayable; the firmware is a bounded
+    response schedule, not a replacement for the general SPI target library.
+    """
+    if type(delayed) is not bool:
+        raise ValueError("invalid delayed response selection")
+    expected = 0x80
+    events = [OutputEvent(0, 0, 8)]
+    last = 0
+    for bit in range(8):
+        value = (expected >> (7 - bit) & 1) << 3
+        if value != last:
+            events.append(OutputEvent(55 if bit == 0 and delayed else 40 + bit * 25, value, 8))
+            last = value
+    edges = [{"time_ns": 1213, "inputs": 1}]
+    for bit in range(8):
+        edges += [{"time_ns": 2013 + bit * 1000, "inputs": 3},
+                  {"time_ns": 2513 + bit * 1000, "inputs": 1}]
+    edges.append({"time_ns": 10013, "inputs": 5})
+    scenario = _scheduled_demo(events, edges, owner=8, open_drain=0, initial=5, end=280,
+        decoder={"protocol": "spi", "mode": 0, "expected_value": expected},
+        capture={"mode": "pin", "mask": 4},
+        fault=([{"kind": "spi_response_delay", "engine": 0, "cycle": 40, "duration_cycles": 15}]
+               if delayed else []))
+    if [frame["value"] for frame in scenario["expected"]["decoded"]] != [0 if delayed else expected]:
+        raise ValueError("SPI demonstration failed independent decoding")
+    return scenario
+
+
+def i2c_demo(*, nack=True):
+    """Scheduled address NACK versus ACK on a recorded open-drain transaction."""
+    if type(nack) is not bool:
+        raise ValueError("invalid NACK selection")
+    transitions = {30: 2}
+    for bit in range(8):
+        sda = 0x84 >> (7 - bit) & 1
+        transitions[60 + bit * 63] = sda
+        transitions[93 + bit * 63] = sda | 2
+        transitions[123 + bit * 63] = sda
+    transitions.update({564: 1, 597: 3, 627: 1, 650: 0, 683: 2, 715: 3})
+    edges = [{"time_ns": cycle * 40 + 13, "inputs": value} for cycle, value in sorted(transitions.items())]
+    events = [OutputEvent(0, 0, 0)]
+    if not nack:
+        events += [OutputEvent(580, 0, 1), OutputEvent(635, 0, 0)]
+    scenario = _scheduled_demo(events, edges, owner=1, open_drain=1, initial=3, end=750,
+        decoder={"protocol": "i2c"},
+        capture={"mode": "pin", "mask": 1},
+        fault=([{"kind": "i2c_nack", "engine": 0, "cycle": 580, "duration_cycles": 55}] if nack else []))
+    decoded = scenario["expected"]["decoded"]
+    if len(decoded) != 1 or decoded[0]["value"] != 0x84 or decoded[0]["ack"] == nack:
+        raise ValueError("I2C demonstration failed independent decoding")
+    return scenario
+
+
 def write_artifacts(scenario, output):
     replay(scenario)  # Validate before creating either artifact.
     output = Path(output)
@@ -234,12 +391,21 @@ def main():
     demo.add_argument("output", type=Path)
     demo.add_argument("--good-stop", action="store_true")
     demo.add_argument("--period", type=int, choices=(25, 217), default=217)
+    for name in ("spi-demo", "i2c-demo"):
+        demo = commands.add_parser(name)
+        demo.add_argument("output", type=Path)
+        demo.add_argument("--without-fault", action="store_true")
     for command in ("replay", "playback"):
         sub = commands.add_parser(command)
         sub.add_argument("scenario", type=Path)
     args = parser.parse_args()
-    if args.command == "uart-demo":
-        scenario = uart_demo(bad_stop=not args.good_stop, period=args.period)
+    if args.command.endswith("-demo"):
+        if args.command == "uart-demo":
+            scenario = uart_demo(bad_stop=not args.good_stop, period=args.period)
+        elif args.command == "spi-demo":
+            scenario = spi_demo(delayed=not args.without_fault)
+        else:
+            scenario = i2c_demo(nack=not args.without_fault)
         write_artifacts(scenario, args.output)
         print(f"Wrote {args.output.with_suffix('.json')} and {args.output.with_suffix('.vcd')}")
     else:

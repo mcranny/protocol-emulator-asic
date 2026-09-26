@@ -13,8 +13,8 @@ from protocol_emulator.v2.firmware import uart_rx, uart_tx, spi_target, spi_cont
 from protocol_emulator.v2.peers import I2CTarget
 from protocol_emulator.v2.host import command_frame, tx_commands, parse_response
 from protocol_emulator.v2.replay import OutputEvent, compile_schedule
-from protocol_emulator.v2.scenario import uart_demo, write_artifacts
-from protocol_emulator.v2.peers import decode_uart as decode_uart_events
+from protocol_emulator.v2.scenario import uart_demo, spi_demo, i2c_demo, write_artifacts
+from protocol_emulator.v2.peers import decode_uart as decode_uart_events, decode_spi, decode_i2c
 
 
 async def capture_words(host):
@@ -607,3 +607,71 @@ async def v2_i2c_target_independent_peer(dut):
         assert await h.request(6) == 1
         assert int(dut.uio_oe.value) == 0
         resolver.cancel()
+
+
+@cocotb.test()
+async def v2_spi_i2c_fault_scenarios(dut):
+    """The exported scenarios execute as ordinary firmware with independent peers."""
+    cocotb.start_soon(Clock(dut.clk, 40, unit="ns").start())
+    scenarios = [spi_demo(delayed=fault) for fault in (True, False)]
+    scenarios += [i2c_demo(nack=fault) for fault in (True, False)]
+    for number, scenario in enumerate(scenarios):
+        await reset(dut)
+        h = Host(dut)
+        config = scenario['configuration']
+        external = [scenario['initial_state']['inputs']]
+        dut.uio_in.value = external[0]
+        for engine, image in enumerate(scenario['firmware']):
+            await h.request(0x21, addr=engine << 7,
+                            payload=config['owners'][engine] | config['open_drain'][engine] << 8)
+            words = image['words']
+            await batch(h, [command_frame(1, engine, i, word) for i, word in enumerate(words)])
+            assert await batch(h, [command_frame(2, engine, i) for i in range(len(words))]) == words
+        await h.request(0x30, payload=scenario['capture']['mask'] << 8 | 1)
+        levels = []
+        def resolve():
+            out, oe = int(dut.uio_out.value), int(dut.uio_oe.value)
+            dut.uio_in.value = (external[0] & ~oe) | (out & oe)
+        async def stimulus(origin):
+            for edge in scenario['external_stimulus']:
+                delay = origin + edge['time_ns'] - int(get_sim_time(unit='ns'))
+                assert delay > 0
+                await Timer(delay, unit='ns')
+                external[0] = edge['inputs']
+                resolve()
+        async def observe():
+            for _ in range(3000):
+                await RisingEdge(dut.clk)
+                await Timer(1, unit='ns')
+                if int(dut.uo_out.value) & 2: break
+            else: raise AssertionError('scenario did not start')
+            peer = cocotb.start_soon(stimulus(int(get_sim_time(unit='ns')) + 39))
+            index = 0
+            events = scenario['expected']['outputs']
+            for cycle in range(scenario['end_cycle'] + 1):
+                await RisingEdge(dut.clk)
+                await Timer(1, unit='ns')
+                if index + 1 < len(events) and events[index + 1]['cycle'] == cycle: index += 1
+                out, oe = int(dut.uio_out.value), int(dut.uio_oe.value)
+                assert (out, oe) == (events[index]['outputs'], events[index]['enables']), cycle
+                assert not int(dut.uo_out.value) & 8
+                resolve()
+                bus = (external[0] & ~oe) | (out & oe)
+                if not levels or levels[-1][1] != bus: levels.append((cycle * 40, bus))
+            await peer
+        observer = cocotb.start_soon(observe())
+        await h.request(0x20, payload=config['start_mask'])
+        await observer
+        await h.request(0x31)
+        status, words = await capture_words(h)
+        assert status & 63 == 3 << 3 | 2
+        origin = words[0] >> 32
+        actual = [{'cycle': (word >> 32) - origin, 'inputs': word >> 24 & 255,
+                   'outputs': word >> 16 & 255, 'enables': word >> 8 & 255,
+                   'flags': word & 255} for word in words]
+        expected = scenario['expected']['capture']
+        assert actual == [dict(r, cycle=r['cycle'] - expected['trigger_cycle']) for r in expected['records']]
+        initial = scenario['initial_state']['inputs']
+        decoded = decode_spi(levels, initial=initial) if number < 2 else decode_i2c(levels, initial=initial)
+        assert decoded == scenario['expected']['decoded']
+        write_artifacts(scenario, Path(__file__).parent / 'output' / f'v2-protocol-scenario-{number}')
