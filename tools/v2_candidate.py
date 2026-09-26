@@ -8,7 +8,11 @@ import hashlib
 import json
 from pathlib import Path
 import shutil
-import subprocess
+
+try:
+    from .validate_local import source_state
+except ImportError:
+    from validate_local import source_state
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -33,15 +37,9 @@ def prepare(destination):
     for filename in ("host_spi.v", "v2_engine.v", "v2_capture.v", "v2_input_filter.v", "v2_project.v"):
         shutil.copy2(ROOT / "src" / filename, destination / "src" / filename)
     (destination / "src/config.json").write_text(json.dumps(config, indent=2) + "\n")
-    patterns = ("src/*.v", "src/config.json", "physical/v2/*", "host/protocol_emulator/*.py",
-                "host/protocol_emulator/v2/*.py", "formal/*.ys", "test/test*.py",
-                "test/Makefile*", "test/requirements.txt", "tests/test_v2*.py", "tools/*.py")
-    paths = sorted({p for pattern in patterns for p in ROOT.glob(pattern) if p.is_file()})
     manifest = {
         "schema": 1, "release_acceptance": False,
-        "source_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
-        "source_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT)),
-        "inputs": {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in paths},
+        **source_state(ROOT),
         "prepared": {str(p.relative_to(destination)): hashlib.sha256(p.read_bytes()).hexdigest()
                      for p in sorted(destination.rglob("*")) if p.is_file()},
     }
