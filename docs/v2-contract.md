@@ -242,6 +242,12 @@ capacity reservation (`GRT_ADJUSTMENT=0.05`). A 70% slew repair guard band and
 30% antenna ratio margin address extracted wire loading. Antenna repair allows
 six iterations and uses wire jumpers after detailed routing to avoid adding
 diode loads after the last fanout repair.
+The Metal1 routing experiment permits signal routing on Metal1 through Metal4,
+while keeping clock routing on Metal2 through Metal4. Metal1 power rails and
+standard-cell obstructions remain in place; signal-to-rail shorts and spacing
+violations must be checked explicitly. TopMetal1 is excluded by the pinned
+Tiny Tapeout precheck. This expanded range is experimental, not evidence of
+improved routability or physical acceptance.
 These are implementation settings; the 6x4 footprint, 40 ns clock, 1.5 ns
 transition limit and all existing acceptance checks remain in force. The
 settings do not establish physical closure. Route-only success must still be

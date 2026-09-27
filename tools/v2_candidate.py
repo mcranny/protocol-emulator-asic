@@ -23,17 +23,12 @@ def prepare(destination):
     overrides = json.loads((ROOT / "physical/v2/overrides.json").read_text())
     if config["CLOCK_PERIOD"] != 40 or config["MAX_TRANSITION_CONSTRAINT"] != 1.5:
         raise ValueError("V2 requires the 40 ns clock and 1.5 ns transition constraint")
-    if set(overrides) - {"CTS_DISTANCE_BETWEEN_BUFFERS",
-                         "GRT_DESIGN_REPAIR_MAX_WIRE_LENGTH",
-                         "PL_MAX_DISPLACEMENT_X",
-                         "PL_MAX_DISPLACEMENT_Y",
-                         "CTS_APPLY_NDR",
-                         "GRT_ADJUSTMENT",
-                         "GRT_DESIGN_REPAIR_MAX_SLEW_PCT",
-                         "GRT_ANTENNA_REPAIR_MARGIN",
-                         "GRT_ANTENNA_REPAIR_ITERS",
-                         "DRT_ANTENNA_REPAIR_ITERS",
-                         "DRT_ANTENNA_REPAIR_JUMPER_ONLY"}:
+    if set(overrides) - {"CTS_DISTANCE_BETWEEN_BUFFERS", "GRT_DESIGN_REPAIR_MAX_WIRE_LENGTH",
+                         "PL_MAX_DISPLACEMENT_X", "PL_MAX_DISPLACEMENT_Y", "CTS_APPLY_NDR",
+                         "GRT_ADJUSTMENT", "GRT_DESIGN_REPAIR_MAX_SLEW_PCT",
+                         "GRT_ANTENNA_REPAIR_MARGIN", "GRT_ANTENNA_REPAIR_ITERS",
+                         "DRT_ANTENNA_REPAIR_ITERS", "DRT_ANTENNA_REPAIR_JUMPER_ONLY",
+                         "RT_MIN_LAYER", "RT_CLOCK_MIN_LAYER"}:
         raise ValueError("unexpected V2 physical override; review required")
     config.update(overrides)
     destination = Path(destination).resolve()
