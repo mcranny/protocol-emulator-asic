@@ -1,0 +1,2 @@
+# Optional browser regression tooling; install Chromium separately as documented.
+playwright==1.58.0
