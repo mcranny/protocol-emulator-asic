@@ -28,7 +28,12 @@ def prepare(destination):
                          "PL_MAX_DISPLACEMENT_X",
                          "PL_MAX_DISPLACEMENT_Y",
                          "CTS_APPLY_NDR",
-                         "GRT_ADJUSTMENT"}:
+                         "GRT_ADJUSTMENT",
+                         "GRT_DESIGN_REPAIR_MAX_SLEW_PCT",
+                         "GRT_ANTENNA_REPAIR_MARGIN",
+                         "GRT_ANTENNA_REPAIR_ITERS",
+                         "DRT_ANTENNA_REPAIR_ITERS",
+                         "DRT_ANTENNA_REPAIR_JUMPER_ONLY"}:
         raise ValueError("unexpected V2 physical override; review required")
     config.update(overrides)
     destination = Path(destination).resolve()
