@@ -1,8 +1,9 @@
-# V2 development evidence
+# V2 validation and acceptance
 
-The V2 implementation is an executable architecture candidate. It is not a
-completed V2 release. The released V1 top and acceptance artifacts remain
-separate. The candidate contract is in [v2-contract.md](v2-contract.md).
+The V2 implementation follows the executable [contract](v2-contract.md).
+Acceptance requires all of the checks below on a single clean source revision,
+with a complete evidence bundle. The released V1 top, its acceptance artifacts
+and version tags remain separate from V2 validation.
 
 ## Checks implemented
 
@@ -11,21 +12,23 @@ separate. The candidate contract is in [v2-contract.md](v2-contract.md).
   false starts, framing errors and break recovery.
 - Three RTL differential suites compare per-cycle UART, instruction and FIFO
   boundary behavior against the Python model.
-- Ten pin-driven suites exercise host safety, capture readout/noninterference,
+- Fourteen pin-driven suites exercise host safety, capture readout/noninterference,
   the UART fault/scenario demonstration,
   bounded firmware playback,
   sustained 115200 full duplex,
   16-byte full-duplex bursts at 1 Mbaud, both SPI roles in all modes and both
-  I2C roles with independent peers. The same suite can run on a routed netlist.
+  I2C roles with independent peers, protocol errors and recovery, SPI/I2C fault
+  scenarios, input spike filtering, and the custom pulse protocol. The same
+  suite runs on a routed netlist.
 - Formal induction proves the documented core safety properties with arbitrary
   instruction words. This does not establish complete protocol correctness.
 - Mutation checks require actual assertion failures for dropped RX records,
   incorrect packed TX ordering, inverted wait edges, shifted capture timestamps
-  and unsafe open-drain output enabling. Compile
+  unsafe open-drain output enabling, and overlapping ownership acceptance. Compile
   failures, missing results and skipped tests do not count as detections.
-- The [capture candidate](v2-capture.md) has standalone differential, model and
-  induction tests plus integrated pin/host tests. Combined physical acceptance
-  is pending.
+- [Capture](v2-capture.md) has standalone differential, model and induction
+  tests plus integrated pin/host tests. Physical acceptance covers the combined
+  engine, capture and input-filter design.
 
 ## Physical feasibility observations
 
@@ -44,8 +47,7 @@ filtered signal-annotation violation counts were zero at every required corner.
 This route does not include capture storage or establish full DRC, LVS,
 precheck or release acceptance. Remaining area cannot be treated as proven
 capacity for capture: the combined implementation must be routed again.
-The 64-word firmware images fit the required protocol sketches; both combined
-I2C roles use all 64 words. A 128-word implementation has not been selected.
+The 64-word firmware images fit the required protocol sketches; the combined I2C controller uses all 64 words and the target uses 62. A 128-word implementation has not been selected.
 
 A clean baseline full build at `b6b534b` subsequently passed local routed
 electrical checks, Magic DRC and LVS. Its functional netlist is byte-identical
@@ -66,25 +68,158 @@ failed legalization.
 Sharing instruction-fetch and stopped-engine host readback at `52fd389`
 reduced pinned synthesis area from 638,056.5156 to 618,348.9186 um2. With the
 original displacement limits, post-clock-tree hold legalization still failed
-on nine instances. Combined physical acceptance remains open. A local trial
+on nine instances. That result did not establish combined physical acceptance. A local trial
 uses wider displacement and automatic wire-length repair instead of imposing
 150 um on every signal. Final electrical, timing and layout checks remain
 mandatory regardless of optimization settings.
 No footprint, clock, memory depth or electrical limit has been relaxed.
 
-## Remaining acceptance work
+## Functional contract and workflows
 
-The ISA remains unfrozen. Required work includes complete I2C timing/filtering
-checks, wider protocol error/phase/abort cases, top-level isolation and burst
-atomicity proofs, SPI/I2C scheduled faults, broader scenario execution,
-the custom protocol demonstration and complete user workflows.
-[UART fault scenarios](v2-scenarios.md) provide JSON/VCD export and deterministic
-external-stimulus replay for the bounded demonstration.
-[Bounded firmware playback](v2-replay.md) passes model and pin-driven checks;
-its routed-netlist validation remains pending.
+The v2 ISA encodings and cycle semantics are specified in the contract. The
+custom pulse protocol uses only that ISA: one sync pulse, a gap, and four bits
+encoded by 400/800 ns high times. All sixteen values are checked against an
+independent decoder in the model; representative values loop back between the
+two engines through pins. No protocol-specific hardware was added for this demo.
 
-Before changed hardware is considered complete, full physical and representative
-routed-netlist acceptance must pass. The final release also needs all required
-suite identities and source/firmware/configuration/netlist provenance enforced
-by the acceptance checker on one clean revision. Existing V1 checks cannot be
-used to claim V2 acceptance.
+Input filtering requires three equal synchronized samples. Model, formal and
+pin tests exercise both polarities and asynchronous pulses through 50 ns. The
+I2C controller compensates for the selected filtering latency. Controller tests check START setup/hold, repeated START, STOP setup and SDA
+setup in addition to SCL periods. Target tests check SDA setup at both rates, including an empty TX FIFO refilled by the host
+while SCL is stretched. Error coverage includes partial SPI transfers in all
+modes, underrun, I2C NACK/arbitration/stuck lines and nine-clock bus clear.
+Analog rise/fall times and physical board operation are outside digital tests.
+
+Core, capture, input-filter and compositional integration induction run locally.
+The integration proof assumes the independently verified engine/capture interface
+contracts; it is not a monolithic proof of arbitrary protocol firmware. The
+ownership-overlap mutant must produce a real counterexample, just as the five
+simulation mutants must produce assertion failures.
+
+[Protocol fault scenarios](v2-scenarios.md) include UART framing faults, delayed
+SPI responses and I2C NACKs. JSON/VCD export, exact replay, bounded firmware
+playback, and host preparation/readout have model and pin-driven checks.
+
+## Final acceptance
+
+The combined capture/filter design requires full physical, precheck and
+all fourteen routed-netlist suites on one clean source revision. Earlier
+baseline evidence cannot establish acceptance of changed hardware. Current
+placement/routing experiments preserve the footprint, clock, capacity and
+all electrical constraints. Standard clock-wire spacing avoids the router's
+repeated per-net removal of optional double-spacing rules. In a controlled
+experiment using the same placed design, reducing global-route capacity
+reservation from 30% to 20% reduced overflow from 4,371 to 54. The router
+recommended 13%, which produced zero overflow on every layer and reduced wire
+length from 3,690,669 to 3,096,676 um.
+
+The full combined build at `2948770` then passed routing DRC, Magic DRC and LVS,
+but failed with 49 slow-corner slew violations, 13 fanout violations and one
+antenna violation. Detailed routing added diode loads after the last electrical
+repair; one affected net grew from four loads to thirteen. Stronger slew repair
+also increases local routing demand. The current settings reserve 5% of routing
+capacity, use a 70% slew repair guard band, repair antenna effects earlier with a
+30% ratio margin, and use wire jumpers for post-route antenna repair. These
+settings preserve all signoff limits; they do not establish acceptance without
+the full checked evidence bundle.
+
+Run the complete local functional gate with the established tool environment:
+
+```sh
+python tools/validate_local.py --output build/v2-functional-01 --require-clean
+```
+
+The runner refuses an existing output directory, snapshots source and its hashes,
+records tool versions, collects exact Python test identities, and runs Python,
+V1/V2 synthesis and lint, all RTL suites, five induction proofs and six mutations.
+It rejects source changes during the run. Omit `--require-clean` only for
+explicitly marked development evidence. A dirty run cannot pass final acceptance.
+
+`tools/check_v2.py` accepts an evidence bundle only when functional, physical,
+precheck, gate-level and render stages identify the same clean revision and
+source hashes. It requires exact suite identities, no failed/skipped tests,
+zero physical violations, all-corner setup/hold and electrical checks, and
+matching netlist/GDS hashes. Python results must match the freshly collected
+suite, so a stale smaller test result cannot pass by meeting a numeric threshold.
+
+## Full-resolution layout rendering
+
+```sh
+python tools/render_gds.py /absolute/final/layout.gds --output build/v2-render-01
+```
+
+The SVG preserves every GDS polygon, path and instance on every layer, including
+vias and minimum-size features. Hierarchical references remain vector references;
+there is no size cutoff, layer omission, hierarchy-depth limit or geometric
+simplification. An independent traversal of the SVG verifies expanded per-layer
+polygon counts against the GDS inventory. The HTML viewer supports pan/zoom and
+layer selection, with all layers initially enabled. The manifest records GDS and
+SVG hashes, units, precision, bounds and inventory. Zoom into the vector output
+to inspect individual wires; a whole-chip screen view necessarily has fewer
+pixels than physical features. GDS remains authoritative, and connectivity is
+checked by LVS rather than inferred from an image.
+
+The final artifact must be rendered from the same GDS that passes precheck and
+physical signoff. An older baseline render is useful only to validate the
+renderer and must not be labeled as the current v2 layout.
+
+## Recording downstream stages
+
+`tools/v2_evidence.py record` wraps a real command and records its exit status,
+clean source identity and artifacts. Output paths must be new; a previous XML
+file cannot be reused. Use `--kind gatelevel --netlist PATH` with
+`--artifact gatelevel.xml=NEW_XML_PATH`, or `--kind precheck --gds PATH` with
+`--artifact precheck.xml=NEW_XML_PATH`. Arguments after `--` are the command to
+execute. For example, the gate-level command is:
+
+```sh
+python tools/v2_evidence.py record --kind gatelevel --output build/v2-gl-stage \
+  --netlist /absolute/final/netlist.v \
+  --artifact gatelevel.xml=/absolute/build/v2-gl.xml -- \
+  make -C test -f Makefile.v2pins GATES=yes PDK_ROOT=/absolute/pdk \
+  GATE_LEVEL_NETLIST=/absolute/final/netlist.v \
+  SIM_BUILD=/absolute/build/v2-gl-sim COCOTB_RESULTS_FILE=/absolute/build/v2-gl.xml
+```
+
+The render stage takes `--gds` and declares `layout.svg`, `render-manifest.json`
+and `index.html` as artifacts, wrapping `tools/render_gds.py`. Precheck must run
+all nine checks from the pinned Tiny Tapeout support-tools revision; a successful
+command alone does not establish that its XML contains those checks.
+
+For a shorter local gate-level run, `tools/validate_gatelevel.py` compiles the
+same netlist once with Icarus and runs all fourteen pin suites in independent
+processes. Each suite has a separate XML result and log. The raw cocotb XML
+also lists the other collected suites as filtered skips. The runner validates
+those identities and requires a real pass for each assigned suite across all
+fourteen processes. A failed, skipped, duplicate or missing assigned suite
+prevents creation of the combined `gatelevel.xml`.
+Use a new output directory and retain its per-suite logs and `commands.json`:
+
+```sh
+python tools/validate_gatelevel.py --netlist /absolute/final/netlist.v \
+  --pdk-root /absolute/pdk --output build/v2-gatelevel-01 --jobs 3
+```
+
+For acceptance, wrap this command with `tools/v2_evidence.py record`, declaring
+the combined XML as `gatelevel.xml` and preserving the individual results and
+logs as additional artifacts. The unchanged pinned PDK models require Icarus:
+their sequential-cell delayed inputs depend on specify timing-check constructs
+that Verilator 5.048 ignores. A single-cell capture test reproduces
+that simulator incompatibility. The gate-level run is functional simulation;
+extracted multi-corner STA remains the timing gate.
+
+Once all stages finish, assemble and validate the evidence:
+
+```sh
+python tools/v2_evidence.py assemble --output build/v2-accepted \
+  --functional build/v2-functional-01 --physical build/v2-full-01 \
+  --gatelevel build/v2-gl-stage --precheck build/v2-precheck-stage \
+  --render build/v2-render-stage
+python tools/check_v2.py build/v2-accepted
+```
+
+Assembly verifies stage inventories and the prepared physical-source hashes,
+copies the full source and artifacts, and writes `acceptance.json` only after
+all acceptance checks pass. Retain full build directories and mutation logs
+alongside the portable bundle for diagnosis. Every command above runs locally;
+none publishes or pushes changes.
