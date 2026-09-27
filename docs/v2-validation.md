@@ -145,17 +145,23 @@ suite, so a stale smaller test result cannot pass by meeting a numeric threshold
 ## Full-resolution layout rendering
 
 ```sh
+python -m pip install -r requirements-viewer.txt
 python tools/render_gds.py /absolute/final/layout.gds --output build/v2-render-01
+python tools/view_gds.py /absolute/final/layout.gds --render-dir build/v2-render-01
 ```
 
 The SVG preserves every GDS polygon, path and instance on every layer, including
 vias and minimum-size features. Hierarchical references remain vector references;
 there is no size cutoff, layer omission, hierarchy-depth limit or geometric
 simplification. An independent traversal of the SVG verifies expanded per-layer
-polygon counts against the GDS inventory. The HTML viewer supports pan/zoom and
-layer selection, with all layers initially enabled. The manifest records GDS and
-SVG hashes, units, precision, bounds and inventory. Zoom into the vector output
-to inspect individual wires; a whole-chip screen view necessarily has fewer
+polygon counts against the GDS inventory. The lightweight HTML viewer uses a local KLayout service for pan/zoom and
+layer selection, with all layers initially enabled. Each settled view is rendered
+from the original GDS at the requested coordinates and scale. The browser holds
+a bounded canvas instead of loading the complete SVG into its DOM; the SVG
+remains a separate download. Patterned fills keep overlapping layers visible
+without removing polygon boundaries. The manifest records GDS and SVG hashes,
+units, precision, bounds and inventory. See [the viewer guide](gds-viewer.md) for
+setup, validation and memory limits. Zoom in to inspect individual wires; a whole-chip screen view necessarily has fewer
 pixels than physical features. GDS remains authoritative, and connectivity is
 checked by LVS rather than inferred from an image.
 

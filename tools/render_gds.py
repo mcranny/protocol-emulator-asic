@@ -7,7 +7,6 @@ geometry and cell instances, not extracted electrical connectivity.
 import argparse
 from collections import Counter
 import hashlib
-import html
 import json
 from pathlib import Path
 import re
@@ -98,49 +97,18 @@ def render(source, destination, top_name=None):
     svg_path.write_text(svg)
     if svg_inventory(svg_path, top.name) != counts:
         raise ValueError("SVG geometry inventory differs from source GDS")
-    controls = "".join(
-        f'<label><input type="checkbox" checked data-layer="l{layer}d{datatype}">'
-        f'{layer}/{datatype} · {counts[layer, datatype]:,}</label>' for layer, datatype in layers)
-    embedded = svg[svg.index("<svg "):]
-    page = '''<!doctype html><html lang="en"><meta charset="utf-8">
-<title>Full-detail GDS layout</title>
-<style>body{margin:0;background:#101827;color:#e5e7eb;font:14px system-ui}
-header{padding:14px 20px}h1{font-size:20px;margin:0 0 8px}p{margin:6px 0}
-main{display:flex;height:calc(100vh - 125px)}aside{width:210px;overflow:auto;padding:12px}
-label{display:block;padding:4px}#viewport{flex:1;overflow:hidden;touch-action:none}
-#viewport>svg{width:100%;height:100%;cursor:grab}button{margin-right:10px}
-a{color:#93c5fd}</style><header><h1>Full-detail GDS: TOP_NAME</h1>
-<p>All LAYER_COUNT layers · POLYGON_COUNT expanded polygons · no geometry simplification.</p>
-<p>Scroll to zoom; drag to pan. Layer controls change visibility only.
-<button id="reset">Reset view</button><a href="layout.svg">Vector SVG</a> ·
-<a href="render-manifest.json">Geometry inventory and source hash</a></p></header>
-<main><aside>Layer / datatype · polygon count CONTROLS</aside><div id="viewport">SVG</div></main>
-<script>
-const svg=document.querySelector('#viewport>svg'), initial=svg.getAttribute('viewBox');
-const box=()=>svg.viewBox.baseVal;
-document.querySelector('#reset').onclick=()=>svg.setAttribute('viewBox',initial);
-document.querySelectorAll('[data-layer]').forEach(input=>input.onchange=()=>{
- svg.querySelectorAll('.'+input.dataset.layer).forEach(p=>p.style.display=input.checked?'':'none');
-});
-svg.addEventListener('wheel',e=>{e.preventDefault();const b=box(),p=new DOMPoint(e.clientX,e.clientY).matrixTransform(svg.getScreenCTM().inverse());
- const k=Math.exp(Math.max(-1,Math.min(1,e.deltaY*.001)));b.x=p.x+(b.x-p.x)*k;b.y=p.y+(b.y-p.y)*k;b.width*=k;b.height*=k;},{passive:false});
-let drag=null;
-svg.onpointerdown=e=>{drag=[e.clientX,e.clientY];svg.setPointerCapture(e.pointerId);};
-svg.onpointermove=e=>{if(!drag)return;const m=svg.getScreenCTM().inverse(),a=new DOMPoint(...drag).matrixTransform(m),p=new DOMPoint(e.clientX,e.clientY).matrixTransform(m),b=box();b.x+=a.x-p.x;b.y+=a.y-p.y;drag=[e.clientX,e.clientY];};
-svg.onpointerup=svg.onpointercancel=()=>drag=null;
-</script></html>'''
-    # Substitute the large SVG last to avoid touching layout text/labels.
-    for key, value in (("TOP_NAME", html.escape(top.name)), ("LAYER_COUNT", str(len(layers))),
-                       ("POLYGON_COUNT", f"{sum(counts.values()):,}"), ("CONTROLS", controls)):
-        page = page.replace(key, value)
-    page = page.replace(">SVG</div>", ">" + embedded + "</div>")
-    (destination / "index.html").write_text(page)
+    # Keep the browser document bounded. Full geometry remains in layout.svg;
+    # the local service redraws each viewport directly from the original GDS.
+    (destination / "index.html").write_bytes(
+        Path(__file__).with_name("gds_viewer.html").read_bytes())
     result = {"schema": 1, "source": str(source.resolve()),
               "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
               "top": top.name, "gdstk_version": gdstk.__version__,
               "unit_m": library.unit, "precision_m": library.precision,
               "bounding_box": top.bounding_box(), "geometry_simplified": False,
               "svg_inventory_matches_gds": True,
+              "viewer": {"mode": "native-viewport", "embedded_geometry": False,
+                         "requires_local_service": True},
               "hierarchy_depth_limit": None, "layers_omitted": [],
               "expanded_polygons": sum(counts.values()),
               "layers": [{"layer": layer, "datatype": datatype, "polygons": counts[layer, datatype]}

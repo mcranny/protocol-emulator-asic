@@ -43,7 +43,9 @@ def test_full_geometry_export(tmp_path):
     ids = {e.get("id") for e in svg.iter() if e.get("id")}
     assert all(e.get("{http://www.w3.org/1999/xlink}href")[1:] in ids for e in uses)
     page = (tmp_path / "render/index.html").read_text()
-    assert page.count('type="checkbox" checked') == 3
+    assert "<canvas" in page and "<polygon" not in page
+    assert len(page.encode()) < 30_000
+    assert report["viewer"]["embedded_geometry"] is False
     assert "0x" not in (tmp_path / "render/layout.svg").read_text()
     assert report["layers_omitted"] == [] and report["geometry_simplified"] is False
     assert report["svg_inventory_matches_gds"] is True
