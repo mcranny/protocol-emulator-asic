@@ -1,9 +1,11 @@
-# Capture candidate
+# V2 capture
 
 `protocol_capture_v2` and `protocol_emulator.v2.capture.Capture` define the same
 bounded capture behavior. The block is connected to the V2 integration top
-and host API. Its combined area and timing are not part of the earlier passing
-local route experiment. The debugging vertical slice is not yet complete.
+and host API. UART, SPI and I2C fault scenarios exercise capture, replay and
+host readout. Combined physical acceptance is established by the
+[V2 evidence bundle](v2-validation.md); the earlier passing baseline route
+did not include capture storage.
 
 ## Sampling and triggers
 
@@ -67,7 +69,7 @@ nondestructive; incomplete diagnostic reads require explicit opt-in.
 
 | Command | Payload / result |
 |---|---|
-| 0B | Features low 16 bits, capture depth high byte; current value `0x20001f` |
+| 0B | Features low 16 bits, capture depth high byte; current value `0x20003f` |
 | 30 | ARM: mode bits 1:0 (immediate/pin/marker/error), mask bits 15:8 |
 | 31 | STOP capture |
 | 32 | Status: armed/triggered/truncated bits 0/1/2, reason bits 5:3, count bits 11:6 |
@@ -77,6 +79,8 @@ nondestructive; incomplete diagnostic reads require explicit opt-in.
 Status reasons 0..7 are reset, armed, capturing, stopped, untriggered, capacity,
 timestamp and disabled. Feature bits 0..4 indicate capture, two engines,
 open-drain enforcement, input watchers and packed/pipelined FIFO transport.
+Feature bit 5 indicates configurable input spike filtering; capture records
+the raw synchronized inputs before filtering.
 Reserved request bits must be zero. Timestamp and record reads during capture
 are rejected without stopping engines or modifying capture storage.
 
@@ -92,5 +96,6 @@ VCD values, marker ordering and observation without changing engine waveforms.
 Formal properties cover record-count bounds, no timestamp wrap while armed,
 truncation freeze and metadata stability. Pin-driven integration tests cover
 host readout, marker/error triggers, full-buffer freeze with ongoing execution
-and captured/uncaptured waveform equivalence. Complete trigger/fault
-demonstrations and combined physical acceptance are still required.
+and captured/uncaptured waveform equivalence. The UART, SPI and I2C
+[fault scenarios](v2-scenarios.md) also run through host pins. Combined physical
+acceptance remains required.
