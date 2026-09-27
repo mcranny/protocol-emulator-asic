@@ -1,9 +1,10 @@
-# UART fault scenarios and replay
+# Protocol fault scenarios and replay
 
 The V2 simulation scenario runner demonstrates a scheduled malformed stop bit,
 independent UART reception, triggered capture, JSON/VCD export and both replay
-forms. It exercises the provisional ISA and has pin-driven RTL checks. Combined
-physical and routed-netlist acceptance remain pending.
+forms. It exercises the v2 ISA and has pin-driven RTL checks. Combined
+physical and routed-netlist acceptance use the source-matched
+[V2 evidence bundle](v2-validation.md).
 
 From the repository root, using the installed Python test environment:
 
@@ -48,17 +49,18 @@ input sampling from execution observation. This deterministic digital ordering
 does not model metastability or recover asynchronous phase from captured data.
 
 The current runner accepts one bounded window of at most one million cycles,
-preloaded TX queues, and external changes on unowned pins. Owned pins feed their
+preloaded TX queues, and external changes on unowned or owned open-drain pins. Owned pins feed their
 driven values back through the input synchronizers; released pins observe the
-external idle level. The decoder observes one owned UART output. Mid-run host
-servicing, input watchers, SPI/I2C scenarios and board electrical models are
-not yet part of this scenario version's supported runner.
+external idle level. Independent decoders observe the selected UART, SPI or I2C waveform. Mid-run
+host servicing, input watchers and board electrical models are outside this
+bounded scenario runner.
 
 Replay validates versions, firmware hashes, pin ownership, timestamps and
 capture completeness before executing. It reuses the original external
 stimulus and compares decoded results and cycle events exactly. The first
 differing result category includes expected and actual data in its error.
-Fault metadata must match the decoded framing-error timing and ownership.
+Fault metadata must match the selected protocol, decoded fault timing and
+ownership.
 Incomplete capture cannot be written as a regression source.
 
 The `playback` command first verifies simulation replay, then compiles the
@@ -81,3 +83,36 @@ over SPI and compares every captured event with the model. Hardware ARM occurs
 before the host start transaction; record comparisons align the trigger epoch
 and retain all relative cycle spacing. Host stop latency changes the final
 quiet capture span. Test artifacts include fault/fixed JSON and VCD examples.
+
+## SPI and I2C fault examples
+
+```sh
+PYTHONPATH=host python -m protocol_emulator.v2.scenario spi-demo build/demo/spi-fault
+PYTHONPATH=host python -m protocol_emulator.v2.scenario spi-demo build/demo/spi-good --without-fault
+PYTHONPATH=host python -m protocol_emulator.v2.scenario i2c-demo build/demo/i2c-fault
+PYTHONPATH=host python -m protocol_emulator.v2.scenario i2c-demo build/demo/i2c-good --without-fault
+```
+
+The SPI example delays one target response transition while an independent
+controller supplies SCK and CS. The decoder observes 00 instead of the expected
+80. The I2C example omits the target ACK for address byte 84; restoring the ACK
+produces a passing decode. These are bounded scheduled output demonstrations,
+not substitutes for the general SPI/I2C firmware tests. Each capture fits all
+required events in the 32-record store without truncation. Replay and playback
+use the same commands as the UART example.
+
+`prepare_hardware(device, scenario)` validates replay before host I/O, stops and
+resets both engines, clears ownership, disables input filtering, loads and
+verifies both programs, preloads TX and arms capture. It returns the atomic
+start mask. The caller supplies the recorded external stimulus and starts the
+engines, using the physical running indication to establish the execution epoch.
+Host SPI transaction completion is not a precise waveform epoch.
+`collect_hardware(device, scenario)` stops capture and compares every record
+relative to its trigger, plus RX records and errors. A longer quiet tail caused
+by host stop latency is allowed; missing or different events fail. Immediate
+capture triggers are not supported by this hardware preparation API.
+
+Pin-driven tests execute all four SPI/I2C fault and corrected cases through the
+host interface, compare every output transition and capture record, and decode
+with independent protocol observers. This validates the digital host workflow;
+no physical board execution is claimed.
