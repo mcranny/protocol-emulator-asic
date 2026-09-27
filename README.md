@@ -10,10 +10,12 @@ transmission is implemented in 25 instructions of firmware. Target system clock:
 
 ## Status
 
-Python, RTL differential, pin-level UART/SPI, and formal safety checks pass.
-The local routed candidate passes all electrical checks at the configured
-1.5 ns transition limit. Full physical and gate-level acceptance on the final
-revision is required before release; local routing alone is insufficient.
+V1 is published as `v1.0.0` and remains the default top-level design. V2 implements
+two engines, receive support, larger FIFOs, input filtering, triggered capture
+and protocol fault/replay workflows. [PR #11](https://github.com/mcranny/protocol-emulator-asic/pull/11)
+tracks V2 integration. Its [local acceptance workflow](docs/v2-validation.md)
+requires a complete source-matched evidence bundle; routing alone is insufficient
+to establish a V2 release.
 See [measured results and acceptance requirements](docs/validation.md) and
 [published releases](https://github.com/mcranny/protocol-emulator-asic/releases)
 for accepted revisions and artifacts.
@@ -48,6 +50,9 @@ local optimization, not on every push. It remains mandatory before release.
 - [ISA, timing, host interface and pin allocation](docs/v1-contract.md)
 - [Verification and clock/reset crossing review](docs/verification.md)
 - [Build and physical acceptance evidence](docs/validation.md)
+- [V2 architecture and host contract](docs/v2-contract.md)
+- [V2 validation status](docs/v2-validation.md)
+- [V2 fault scenarios and replay](docs/v2-scenarios.md)
 - [Phase 2 sequence and current throughput limits](docs/phase-2-plan.md)
 - [Project datasheet](docs/info.md)
 
@@ -61,8 +66,8 @@ local optimization, not on every push. It remains mandatory before release.
 - `formal/`: induction proof script
 - `docs/`: interfaces, verification, and evidence
 
-UART receive, a second engine, on-chip capture/replay, and SPI/I2C firmware are
-post-V1 work.
+V2 keeps protocol decoding in firmware. Capture is hardware; replay compiles
+bounded output schedules into ordinary engine instructions.
 
 ## License
 
