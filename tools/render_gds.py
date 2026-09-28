@@ -108,7 +108,8 @@ def render(source, destination, top_name=None):
               "bounding_box": top.bounding_box(), "geometry_simplified": False,
               "svg_inventory_matches_gds": True,
               "viewer": {"mode": "native-viewport", "embedded_geometry": False,
-                         "requires_local_service": True},
+                         "requires_local_service": True,
+                         "overview": "area-density", "detail": "literal-geometry"},
               "hierarchy_depth_limit": None, "layers_omitted": [],
               "expanded_polygons": sum(counts.values()),
               "layers": [{"layer": layer, "datatype": datatype, "polygons": counts[layer, datatype]}
