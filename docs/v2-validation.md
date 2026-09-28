@@ -158,8 +158,10 @@ polygon counts against the GDS inventory. The lightweight HTML viewer uses a loc
 layer selection, with all layers initially enabled. Each settled view is rendered
 from the original GDS at the requested coordinates and scale. The browser holds
 a bounded canvas instead of loading the complete SVG into its DOM; the SVG
-remains a separate download. Patterned fills keep overlapping layers visible
-without removing polygon boundaries. The manifest records GDS and SVG hashes,
+remains a separate download. Auto mode uses a labeled area-density overview for
+subpixel features, then switches to literal geometry as you zoom in. Translucent
+fills and thin outlines keep overlapping layers readable. Manual mode selection
+retains direct access to literal geometry. The manifest records GDS and SVG hashes,
 units, precision, bounds and inventory. See [the viewer guide](gds-viewer.md) for
 setup, validation and memory limits. Zoom in to inspect individual wires; a whole-chip screen view necessarily has fewer
 pixels than physical features. GDS remains authoritative, and connectivity is

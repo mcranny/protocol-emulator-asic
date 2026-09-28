@@ -4,7 +4,8 @@ The viewer renders the original GDS through a local KLayout service. The browser
 holds one current viewport bitmap rather than millions of SVG elements. Every
 settled zoom or pan requests a new render from the source geometry. Wires, vias,
 paths, array instances and all hierarchy levels remain available at any zoom.
-There is no geometry simplification or minimum feature-size filter.
+Literal geometry has no simplification or minimum feature-size filter. Auto mode
+uses an explicitly labeled density overview when individual features are subpixel.
 
 ## Start locally
 
@@ -23,18 +24,54 @@ startup: to inspect a different revision, restart the service with that file.
 Use a completed output or a saved copy, not a file still being written by a flow.
 
 Drag to pan, use the wheel or double-click to zoom, and select **Fit layout** to
-return to the overview. **50 µm** shows a region 50 micrometres across at the
-current centre. Press **F** while the canvas is focused to fit. All layers start
-enabled; layer checkboxes let you inspect individual conductors. Sparse fills
-and transparent overlap are display styles that expose underlying geometry;
-polygon edges are still drawn. Overlapping features can be distinguished most
-clearly by isolating their layers.
+return to the overview. **Detail** chooses a scale at which typical selected
+features occupy about four screen pixels. Press **F** while the canvas is focused
+to fit. All layers start enabled. Checkboxes select any combination; **Solo**
+isolates one layer. Pass `--layer-properties /path/to/technology.lyp` to show
+verified PDK names such as Metal2 and Via2 alongside their GDS layer/datatype.
+Without that optional file, source names or layer numbers remain available.
 
-The status says **Refreshing** while an old image is being repositioned for
-interaction, and **Ready** once the requested geometry has been freshly rendered.
-Screen pixels necessarily limit the overview. Zoom in to resolve individual
-features; the viewer does not enlarge a fixed overview as its final detail image.
-An image cannot certify connectivity: use LVS and the physical signoff reports.
+## Overview, geometry and zoom limits
+
+**Auto** uses an area-density overview when the median characteristic feature
+size of the selected layers is below 1.5 CSS pixels. Above that threshold it
+renders literal geometry. The mode selector can force either **Density overview**
+or **Literal geometry**, and the header and status identify the actual result.
+All geometry and every hierarchy level remain available in literal mode; the
+GDS and full SVG export are not altered by LOD.
+
+Density is computed per layer in at most 200 by 200 screen-space buckets using
+KLayout's `Region.rasterize` area integration. A wire narrower than a screen
+pixel still contributes its area. Buckets snap to database-unit coordinates.
+Overlaps contribute repeatedly: this is **overlap-weighted polygon area**, not
+union coverage, routing congestion, or a DRC measurement. A square-root/log
+transfer makes sparse features visible, and colors blend according to density.
+The service caches only the current viewport's per-layer density arrays.
+See the [KLayout rasterizer documentation](https://www.klayout.de/doc/code/class_Region.html#method199).
+
+Literal geometry uses translucent solid fills and one-pixel, lighter outlines.
+The former bright stipple dots are gone. Broad structural/boundary layers receive
+lower weight in multi-layer views so they do not cover routing; solo views use
+full weight. Blending is independent of layer order. There is no screen-space
+inflation of wire widths. The background stays dark in both rendering modes.
+
+Zoom-out stops at the actual design bounds plus a 4% margin; panning is constrained
+to that envelope. Maximum magnification shows a span of four times the smallest
+measured feature on the viewport's shorter side. Feature measurements include
+path width, rectangle short side, and a conservative 2A/P characteristic width
+for other polygons, with instance magnification and array multiplicity accounted
+for. These are display heuristics, not PDK minimum-width rules. The limits adapt
+to the actual GDS and viewport aspect ratio, including after resize.
+
+The native placement grid is disabled. The optional **Reference grid (faint)**
+is off by default and adds low-contrast neutral coordinate dots. Its spacing
+adapts to zoom; it is not a claimed reconstruction of placement sites or routing
+tracks, since those definitions are not supplied by the GDS.
+
+The status says **Refreshing** while an old image is repositioned for interaction,
+and **Ready** once the new view has rendered. Zoom into literal geometry to
+inspect individual features. An image cannot certify connectivity: use LVS and
+the physical signoff reports.
 
 ## Keep the complete vector export
 
@@ -74,7 +111,9 @@ Run the geometry and service regression tests:
 ```
 
 These cover transformed 1 nm vias, nested arrays, paths, overlapping boundary
-layers, the complete SVG inventory, source checksums and bounded requests.
+layers, subpixel area contributions, density orientation and clipping, feature
+scaling, LOD selection, cache bounds, the complete SVG inventory, source checksums
+and bounded requests.
 For browser checks, start the viewer as above, then in another terminal:
 
 ```sh
@@ -84,7 +123,8 @@ PLAYWRIGHT_BROWSERS_PATH="$PWD/build/playwright" .venv/bin/python tools/check_gd
 ```
 
 The browser check exercises repeated zooms, pan, wheel navigation, layer changes,
-rapid inputs, resize and recovery from a failed render. It saves screenshots and
+rapid inputs, resize, both zoom limits, automatic/manual LOD selection, layer
+isolation, the reference-grid toggle and recovery from a failed render. It saves screenshots and
 Chromium memory measurements. Process RSS is summed and can double-count shared
 pages; it is not a measurement of unique physical memory. Browser version,
 platform, display size and layout affect the result. The optional browser tools

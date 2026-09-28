@@ -9,9 +9,12 @@ from urllib.request import Request, urlopen
 import gdstk
 import klayout.lay as lay
 import pytest
+import numpy as np
+import klayout.db as db
 
 from tools.view_gds import LayoutRenderer, MAX_PIXELS, MAX_SIDE, make_handler, parse_view
 from tools.render_gds import render
+from tools.gds_viewer_geometry import coverage_grid, feature_scales, layer_names, composite, BACKGROUND
 
 
 @pytest.fixture
@@ -84,6 +87,9 @@ def test_transformed_array_and_smallest_grid_geometry_are_visible(source):
     'box=0,0,1,1&width=10&height=10&layers=unknown',
     'box=0,0,1,1&width=10&height=10&layers=8/0&width=10',
     'box=0,0,1,1&width=10&height=10',
+    'box=0,0,1,1&width=10&height=10&layers=&mode=invalid',
+    'box=0,0,1,1&width=10&height=10&layers=&pixel_ratio=nan',
+    'box=0,0,1,1&width=10&height=10&layers=&pixel_ratio=0',
 ])
 def test_invalid_or_unbounded_view_is_rejected(query):
     with pytest.raises(ValueError):
@@ -156,3 +162,78 @@ def test_http_routes_and_host_boundary(source):
         assert error.value.code == 403
     finally:
         server.shutdown(); thread.join(10)
+
+
+def test_density_captures_subpixel_wire_and_counts_overlap():
+    layout = db.Layout(); layout.dbu = .001
+    top = layout.create_cell('top'); index = layout.layer(8, 0)
+    # 1 nm wire occupies 1/1000 of a 1 um bucket, too thin for literal overview.
+    top.shapes(index).insert(db.Box(0, 0, 1000, 1))
+    coverage = coverage_grid(db, top, index, (0, 0, 2, 2), layout.dbu, 2, 2)
+    np.testing.assert_allclose(coverage, [[0, 0], [.001, 0]])
+    top.shapes(index).insert(db.Box(0, 0, 1000, 1))
+    doubled = coverage_grid(db, top, index, (0, 0, 2, 2), layout.dbu, 2, 2)
+    np.testing.assert_allclose(doubled, coverage * 2)
+    pixels = composite([1.8*np.sqrt(np.log1p(coverage))], [(240, 100, 180)], (2, 2))
+    assert tuple(pixels[1, 0]) != BACKGROUND
+    assert tuple(pixels[0, 0]) == BACKGROUND
+
+
+def test_density_keeps_transformed_arrays_and_clips_outside(source):
+    renderer = LayoutRenderer(source)
+    index = renderer.layer_indices['19/7']
+    grid = coverage_grid(db, renderer.top, index, (1, 2, 3, 4), renderer.layout.dbu, 100, 100)
+    # Six 1x2 nm rectangles, each bucket 20x20 nm.
+    assert float(grid.sum()) == pytest.approx(12 / 400)
+    outside = coverage_grid(db, renderer.top, index, (20, 20, 22, 22), renderer.layout.dbu, 100, 100)
+    assert not outside.any()
+
+
+def test_feature_limits_follow_geometry_and_magnification(tmp_path):
+    library = gdstk.Library(unit=1e-6, precision=1e-9)
+    leaf = library.new_cell('leaf')
+    leaf.add(gdstk.rectangle((0, 0), (.02, .06), layer=1))
+    leaf.add(gdstk.FlexPath([(1, 0), (2, 0)], .01, simple_path=True, layer=2))
+    top = library.new_cell('top')
+    top.add(gdstk.Reference(leaf, magnification=.5, columns=2, rows=2, spacing=(3, 3)))
+    # Unreferenced geometry must not set the top's zoom limit.
+    library.new_cell('unrelated').add(gdstk.rectangle((0, 0), (.001, .001), layer=1))
+    path = tmp_path/'scaled.gds'; library.write_gds(path)
+    renderer = LayoutRenderer(path, top_name='top')
+    assert renderer.metadata['minimum_feature_um'] == pytest.approx(.005)
+    assert renderer.metadata['minimum_view_span_um'] == pytest.approx(.020)
+    assert renderer.scales['1/0']['typical_um'] == pytest.approx(.010)
+
+
+def test_auto_lod_switch_and_manual_override(source):
+    renderer = LayoutRenderer(source)
+    assert renderer.view_mode((0, 0, 10, 10), 100, {'19/7'}, 'auto', 1) == 'density'
+    assert renderer.view_mode((0, 0, .01, .01), 100, {'19/7'}, 'auto', 1) == 'geometry'
+    assert renderer.view_mode((0, 0, 10, 10), 100, {'19/7'}, 'geometry', 1) == 'geometry'
+    assert renderer.view_mode((0, 0, .01, .01), 100, {'19/7'}, 'density', 1) == 'density'
+
+
+def test_density_cache_is_one_view_and_geometry_clears_visibility(source):
+    renderer = LayoutRenderer(source)
+    q = 'box=0,0,10,10&width=100&height=100&mode=density&layers='
+    renderer.render(q+'8/0'); renderer.render(q+'19/7')
+    assert set(renderer.density_cache) == {'8/0', '19/7'}
+    renderer.render(q.replace('0,0,10,10', '1,1,11,11')+'19/7')
+    assert set(renderer.density_cache) == {'19/7'}
+    data = renderer.render(q.replace('mode=density', 'mode=geometry'))
+    image = lay.PixelBuffer.from_png_data(data)
+    assert image.pixel(50, 50) & 0xffffff == 0x101827
+
+
+def test_layer_names_from_lyp_and_dark_empty_background(source, tmp_path):
+    profile = tmp_path/'test.lyp'
+    profile.write_text('<layer-properties><properties><name>Metal2</name><source>8/0@1</source>'
+                       '</properties></layer-properties>')
+    assert layer_names(profile) == {'8/0': 'Metal2'}
+    renderer = LayoutRenderer(source, layer_properties=profile)
+    assert renderer.layer_metadata['8/0']['name'] == 'Metal2'
+    assert renderer.metadata['placement_grid'] is False
+    for mode in ('geometry', 'density'):
+        data = renderer.render(f'box=0,0,10,10&width=10&height=10&layers=&mode={mode}')
+        image = lay.PixelBuffer.from_png_data(data)
+        assert all(image.pixel(x, y) & 0xffffff == 0x101827 for x in range(10) for y in range(10))

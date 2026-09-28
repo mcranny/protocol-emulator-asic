@@ -60,9 +60,37 @@ def check(url, destination):
         load_seconds = time.monotonic() - start
         measure('initial')
         page.screenshot(path=str(destination / 'overview.png'))
-        page.get_by_role('button', name='50 µm', exact=True).click()
+        metadata = page.request.get(url.rstrip('/') + '/api/metadata').json()
+        expect(page.locator('#view-mode')).to_have_text('Density overview')
+        fitted = json.loads(page.locator('canvas').get_attribute('data-view-box'))
+        page.evaluate('zoom(1e12)')
         ready()
+        assert json.loads(page.locator('canvas').get_attribute('data-view-box')) == fitted
+        expect(page.get_by_role('button', name='Zoom out', exact=True)).to_be_disabled()
+        page.get_by_role('button', name='Detail', exact=True).click()
+        ready()
+        expect(page.locator('#view-mode')).to_have_text('Literal geometry')
         measure('detail')
+        without_grid = page.locator('canvas').screenshot()
+        page.get_by_label('Reference grid (faint)').check()
+        assert page.locator('canvas').screenshot() != without_grid
+        page.get_by_label('Reference grid (faint)').uncheck()
+        assert page.locator('canvas').screenshot() == without_grid
+        inspect_layer = next((l for l in metadata['layers'] if l['name'] == 'Metal2.drawing'), metadata['layers'][0])
+        page.get_by_role('button', name='Isolate ' + inspect_layer['name'], exact=True).click()
+        ready()
+        expect(page.locator('#status')).to_contain_text('1 /')
+        page.screenshot(path=str(destination / 'isolated-layer.png'))
+        page.get_by_role('button', name='All', exact=True).click()
+        ready()
+        page.locator('#mode').select_option('density')
+        ready()
+        expect(page.locator('#view-mode')).to_have_text('Density overview')
+        page.locator('#mode').select_option('geometry')
+        ready()
+        expect(page.locator('#view-mode')).to_have_text('Literal geometry')
+        page.locator('#mode').select_option('auto')
+        ready()
         page.screenshot(path=str(destination / 'detail.png'))
         for index in range(12):
             page.get_by_role('button', name='Zoom in', exact=True).click()
@@ -109,13 +137,24 @@ def check(url, destination):
         ready()
         expect(page.locator('#message')).to_be_hidden()
         measure('recovered')
+        page.evaluate('zoom(1e-12)')
+        ready()
+        minimum = json.loads(page.locator('canvas').get_attribute('data-view-box'))
+        short_span = min(minimum[2]-minimum[0], minimum[3]-minimum[1])
+        assert abs(short_span-metadata['minimum_view_span_um']) < metadata['dbu_um'] * .001
+        page.evaluate('zoom(1e-12)')
+        ready()
+        assert json.loads(page.locator('canvas').get_attribute('data-view-box')) == minimum
+        expect(page.get_by_role('button', name='Zoom in', exact=True)).to_be_disabled()
+        page.get_by_role('button', name='Fit layout', exact=True).click()
+        ready()
         assert page.locator('svg,polygon').count() == 0
         assert not errors, errors
         assert peak_pending == 1, peak_pending
         assert max(m['dom_nodes'] for m in measurements) < 1000
         assert max(m['js_heap_used_bytes'] for m in measurements) < 32*1024*1024
         report = {'url': url, 'browser_version': browser.version, 'load_seconds': load_seconds,
-                  'errors': errors, 'peak_pending_render_requests': peak_pending,
+                  'source_sha256': metadata['source_sha256'], 'errors': errors, 'peak_pending_render_requests': peak_pending,
                   'measurements': measurements}
         (destination / 'results.json').write_text(json.dumps(report, indent=2) + '\n')
         browser.close()
