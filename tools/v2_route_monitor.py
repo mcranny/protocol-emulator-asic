@@ -16,9 +16,13 @@ def iterations(log):
             if int(match[1]) == 0:
                 run += 1
             current = {"run": run, "iteration": int(match[1]), "kind": match[2]}
+        match = re.search(r"Completing (\d+)% with (\d+) violations\.", line)
+        if match and current is not None:
+            current.update(progress_percent=int(match[1]), progress_violations=int(match[2]))
         match = re.search(r"Number of violations = (\d+)\.", line)
         if match and current is not None:
-            completed.append(dict(current, violations=int(match[1])))
+            completed.append({key: value for key, value in dict(current, violations=int(match[1])).items()
+                              if not key.startswith("progress_")})
             current = None
     return {"completed": completed, "current": current}
 
@@ -51,6 +55,7 @@ def drc_summary(report):
             conflicts.append({"type": kind[1], "layer": bbox[5], "sources": sorted(nets), "bbox_um": xy})
             power_regions[region] += 1
     return {"count": len(lines) // 3, "by_layer": dict(layer_counts), "by_type": dict(types),
+            "coverage": "records in the router report; counts may be capped and are not a substitute for iteration totals",
             "regions_100um": dict(regions), "signal_to_power_count": len(conflicts),
             "signal_to_power_regions_100um": dict(power_regions), "signal_to_power": conflicts}
 
@@ -67,7 +72,9 @@ def stalled(progress, window=10):
     return best > 0 and recent[0]["violations"] - best < max(1, recent[0]["violations"] * 0.01)
 
 
-def sample(root):
+def sample(root, destination=None):
+    destination = root if destination is None else destination
+    destination.mkdir(parents=True, exist_ok=True)
     sample = {"unix_time": time.time(), "disk_free_bytes": shutil.disk_usage(root).free}
     for name in ("memory.current", "memory.peak", "memory.swap.current", "memory.swap.peak", "memory.events"):
         path = Path("/sys/fs/cgroup") / name
@@ -87,15 +94,20 @@ def sample(root):
                  for path in sorted(root.rglob("drt_iter*.odb")) if path.is_file()]
     sample["snapshot_count"] = len(snapshots)
     sample["snapshot_bytes"] = sum(entry["bytes"] for entry in snapshots)
-    (root / "snapshots.json").write_text(json.dumps(snapshots, indent=2) + "\n")
-    with (root / "resources.jsonl").open("a") as stream:
+    (destination / "snapshots.json").write_text(json.dumps(snapshots, indent=2) + "\n")
+    with (destination / "resources.jsonl").open("a") as stream:
         stream.write(json.dumps(sample) + "\n")
     logs = list(root.glob("runs/*/*-openroad-detailedrouting/openroad-detailedrouting.log"))
-    progress = iterations(logs[0].read_text()) if len(logs) == 1 else {"completed": [], "current": None}
+    # LibreLane's step log can stay buffered for hours while its console output
+    # is already flushed to flow.log. Prefer the retained console stream.
+    flow_log = root / "flow.log"
+    log = flow_log if flow_log.exists() else (logs[0] if len(logs) == 1 else None)
+    progress = iterations(log.read_text()) if log else {"completed": [], "current": None}
+    progress["source_log"] = str(log.relative_to(root)) if log else None
     progress["plateau_requires_review"] = stalled(progress)
     progress["sampled_at"] = sample["unix_time"]
-    (root / "route-progress.json").write_text(json.dumps(progress, indent=2) + "\n")
-    reports = root / "drc-summaries"
+    (destination / "route-progress.json").write_text(json.dumps(progress, indent=2) + "\n")
+    reports = destination / "drc-summaries"
     reports.mkdir(exist_ok=True)
     for path in root.glob("runs/*/*-openroad-detailedrouting/drt-run-*/*.drc*.rpt"):
         # Skip files still being written. Once summarized, each immutable iteration

@@ -96,7 +96,21 @@ Completing 20% with 5 violations.
 """
     progress = iterations(log)
     assert [p["violations"] for p in progress["completed"]] == [10, 0]
-    assert progress["current"] == {"run": 1, "iteration": 0, "kind": "optimization"}
+    assert progress["current"] == {"run": 1, "iteration": 0, "kind": "optimization",
+                                    "progress_percent": 20, "progress_violations": 5}
+
+
+def test_monitor_uses_flushed_log_and_separate_observer_outputs(tmp_path):
+    step = tmp_path / "runs/route/01-openroad-detailedrouting"
+    step.mkdir(parents=True)
+    start = "[INFO DRT-0195] Start 0th optimization iteration.\n"
+    (step / "openroad-detailedrouting.log").write_text(start)
+    (tmp_path / "flow.log").write_text(start + "[INFO DRT-0199]   Number of violations = 42.\n")
+    _, progress = sample(tmp_path, tmp_path / "observer")
+    assert progress["completed"][-1]["violations"] == 42
+    assert progress["source_log"] == "flow.log"
+    assert not (tmp_path / "route-progress.json").exists()
+    assert (tmp_path / "observer/route-progress.json").exists()
 
 
 def test_plateau_requires_nonzero_sustained_same_pass_counts():
