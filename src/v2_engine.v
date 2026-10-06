@@ -15,9 +15,8 @@ module protocol_engine_v2 (
     input wire [1:0] tx_count,
     input wire [23:0] tx_data,
     output wire tx_ready,
-    input wire rx_pop,
+    input wire rx_pop, rx_lookahead,
     output wire [15:0] rx_data,
-    output wire [15:0] rx_next,
     output reg [4:0] tx_level, rx_level,
     output wire [7:0] pins_out, pins_oe,
     output reg [7:0] marker,
@@ -71,8 +70,10 @@ module protocol_engine_v2 (
     assign program_legal = legal(program_data);
     assign start_ready = !running && valid_words[0];
     assign tx_ready = tx_count != 0 && ({1'b0,tx_level} + {4'b0,tx_count}) <= 16;
-    assign rx_data = rx_level != 0 ? rx_mem[rx_rd] : 16'b0;
-    assign rx_next = rx_level > 1 ? rx_mem[rx_rd + 4'd1] : 16'b0;
+    // The host needs either the head or the entry after a pending pop, never
+    // both at once. Select the address before the shared FIFO read tree.
+    wire [3:0] rx_read_address = rx_rd + {3'b0,rx_lookahead};
+    assign rx_data = rx_level > {4'b0,rx_lookahead} ? rx_mem[rx_read_address] : 16'b0;
     assign pins_out = out_value & owner & ~open_drain;
     assign pins_oe = out_enable & owner & ~(out_value & open_drain)
         & {8{rst_n && ena && running}};

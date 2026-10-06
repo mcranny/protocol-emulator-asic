@@ -39,6 +39,7 @@ class Harness:
         d.tx_data.value = sum(value << (8 * i) for i, value in enumerate(tx_bytes))
         d.tx_count.value = len(tx_bytes) or 1
         d.rx_pop.value = pop
+        d.rx_lookahead.value = 0
         await Timer(20, unit="ns")
         pre_tx, pre_rx = len(e.fifo), len(e.rx)
         if reset:
@@ -98,6 +99,15 @@ class Harness:
             }, indent=2))
         assert actual == expected, record
         assert int(d.rx_data.value) == rx_expected
+        # Independently check both read addresses against the behavioral queue,
+        # including empty, one-entry, full, wraparound and concurrent push/pop.
+        d.rx_lookahead.value = 1
+        await Timer(1, unit="ns")
+        next_expected = (e.rx[1][0] | e.rx[1][1] << 8) if len(e.rx) > 1 else 0
+        assert int(d.rx_data.value) == next_expected, record
+        d.rx_lookahead.value = 0
+        await Timer(1, unit="ns")
+        assert int(d.rx_data.value) == rx_expected, record
 
     async def load(self, source):
         await self.step(reset=True)

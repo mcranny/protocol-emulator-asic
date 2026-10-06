@@ -46,7 +46,7 @@ module tt_um_mcranny_protocol_emulator_v2 (
     wire [15:0] errors0, errors1;
     wire [7:0] out0, out1, oe0, oe1, mark0, mark1;
     wire [23:0] read0, read1;
-    wire [15:0] rx0, rx1, rxnext0, rxnext1;
+    wire [15:0] rx0, rx1;
     wire [4:0] txlevel0, txlevel1, rxlevel0, rxlevel1;
     wire ready0, ready1;
     wire valid0, valid1, legal0, legal1, start_ready0, start_ready1;
@@ -63,8 +63,7 @@ module tt_um_mcranny_protocol_emulator_v2 (
     wire consume_rx = cmd_valid && pending_rx;
     wire consume_selected = consume_rx && pending_engine == select_engine;
     wire [4:0] available_rx = rxlevel - {4'b0,consume_selected};
-    wire [15:0] selected_rx = select_engine ? (consume_selected ? rxnext1 : rx1) :
-                                                            (consume_selected ? rxnext0 : rx0);
+    wire [15:0] selected_rx = select_engine ? rx1 : rx0;
     reg reject, fatal;
     reg [23:0] result;
     reg [15:0] host_errors;
@@ -218,7 +217,8 @@ module tt_um_mcranny_protocol_emulator_v2 (
         .program_addr(addr[5:0]), .program_data(payload), .program_read(read0),
         .program_valid(valid0), .program_legal(legal0), .start_ready(start_ready0),
         .tx_valid(accepted && tx_command && !select_engine), .tx_count(tx_count), .tx_data(payload),
-        .tx_ready(ready0), .rx_pop(consume_rx && !pending_engine), .rx_data(rx0), .rx_next(rxnext0),
+        .tx_ready(ready0), .rx_pop(consume_rx && !pending_engine),
+        .rx_lookahead(consume_selected), .rx_data(rx0),
         .tx_level(txlevel0), .rx_level(rxlevel0), .pins_out(out0), .pins_oe(oe0),
         .marker(mark0), .running(running[0]), .errors(errors0)
     );
@@ -230,7 +230,8 @@ module tt_um_mcranny_protocol_emulator_v2 (
         .program_addr(addr[5:0]), .program_data(payload), .program_read(read1),
         .program_valid(valid1), .program_legal(legal1), .start_ready(start_ready1),
         .tx_valid(accepted && tx_command && select_engine), .tx_count(tx_count), .tx_data(payload),
-        .tx_ready(ready1), .rx_pop(consume_rx && pending_engine), .rx_data(rx1), .rx_next(rxnext1),
+        .tx_ready(ready1), .rx_pop(consume_rx && pending_engine),
+        .rx_lookahead(consume_selected), .rx_data(rx1),
         .tx_level(txlevel1), .rx_level(rxlevel1), .pins_out(out1), .pins_oe(oe1),
         .marker(mark1), .running(running[1]), .errors(errors1)
     );
