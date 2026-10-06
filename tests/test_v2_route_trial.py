@@ -9,6 +9,8 @@ from tools import v2_closure as closure
 from tools import v2_route_trial as trial
 from tools.v2_route_geometry import inspect_block
 from tools.v2_route_monitor import drc_summary, iterations, sample, stalled
+from tools.v2_route_monitor import plateau_stop_reason
+from tools.v2_route_flow import search_script
 
 
 def corner_metrics(corner):
@@ -122,6 +124,33 @@ def test_plateau_requires_nonzero_sustained_same_pass_counts():
     assert not stalled(progress)
     progress["completed"][-1]["violations"] = 0
     assert not stalled(progress)
+
+
+def test_overnight_plateau_stops_late_flat_counts_but_allows_progress():
+    entries = [{"run": 0, "iteration": i, "violations": 210} for i in range(47, 52)]
+    assert plateau_stop_reason({"completed": entries})
+    entries[-1]["violations"] = 209
+    assert plateau_stop_reason({"completed": entries}) is None
+    entries[-1].update(violations=210, run=1)
+    assert plateau_stop_reason({"completed": entries}) is None
+    for entry in entries:
+        entry.update(run=0, violations=0)
+    assert plateau_stop_reason({"completed": entries}) is None
+
+
+def test_search_script_rejects_changed_tool_source():
+    with pytest.raises(ValueError, match="pinned"):
+        search_script("lappend drt_args -or_seed 42", 43, 1)
+
+
+def test_search_changes_seed_and_enables_actual_order_swaps(monkeypatch):
+    import hashlib
+    from tools import v2_route_flow
+    original = "before\nlappend drt_args -or_seed 42\nafter\n"
+    monkeypatch.setattr(v2_route_flow, "PINNED_DRT_SHA256", hashlib.sha256(original.encode()).hexdigest())
+    assert search_script(original, 43, 1) == "before\nlappend drt_args -or_seed 43\nlappend drt_args -or_k 1\nafter\n"
+    with pytest.raises(ValueError, match="parameters"):
+        search_script(original, -1, 1)
 
 
 DRC = """violation type: Short
