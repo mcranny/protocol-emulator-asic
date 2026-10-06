@@ -16,10 +16,10 @@ import time
 
 try:
     from . import v2_closure as closure
-    from .v2_route_monitor import sample
+    from .v2_route_monitor import sample, plateau_stop_reason
 except ImportError:
     import v2_closure as closure
-    from v2_route_monitor import sample
+    from v2_route_monitor import sample, plateau_stop_reason
 
 ROOT = Path(__file__).resolve().parents[1]
 MIN_DISK = 20 * 1024**3
@@ -121,8 +121,8 @@ def inside():
     with (root / "geometry.log").open("w") as log:
         subprocess.run(["openroad", "-exit", "-no_splash", "-python", "/closure/v2_route_geometry.py",
                         state["odb"], "/closure/geometry.json"], stdout=log, stderr=subprocess.STDOUT, check=True)
-    command = [sys.executable, "-m", "librelane", "--manual-pdk", "--pdk-root", "/pdk",
-               "--pdk", "ihp-sg13cmos5l", "--run-tag", "route", "-j", "2",
+    command = [sys.executable, "/closure/v2_route_flow.py", "--manual-pdk", "--pdk-root", "/pdk",
+               "--pdk", "ihp-sg13cmos5l", "--run-tag", "route", "-j", str(manifest["threads"]),
                "--from", "OpenROAD.DetailedRouting", "--to", "OpenROAD.STAPostPNR",
                "--with-initial-state", "/closure/state.json", "/closure/config.json"]
     closure.write(root / "flow-command.json", command)
@@ -135,10 +135,9 @@ def inside():
             while True:
                 resource, progress = sample(root)
                 reason = resource_reason(resource, manifest["memory_stop_bytes"])
-                # Give the different router strategies time to operate: only stop
-                # after iteration 50 and 10 iterations with <1% best improvement.
-                if (progress["plateau_requires_review"] and progress["completed"][-1]["iteration"] >= 50):
-                    reason = reason or "late routing plateau: <1% improvement across 10 completed iterations"
+                reason = reason or plateau_stop_reason(progress)
+                if time.time() - status["started_unix"] > manifest["max_runtime_hours"] * 3600:
+                    reason = reason or "maximum trial runtime reached"
                 if reason and child.poll() is None:
                     status["stop_reason"] = reason
                     closure.write(root / "route-status.json", status)
@@ -151,6 +150,9 @@ def inside():
         except BaseException:
             if child.poll() is None:
                 stop_child(child)
+            status.update(phase="interrupted", finished_unix=time.time(),
+                          stop_reason="supervisor interrupted", tool_exit_code=child.returncode)
+            closure.write(root / "route-status.json", status)
             raise
     sample(root)
     status.update(phase="finished", finished_unix=time.time(), tool_exit_code=child.returncode)
@@ -186,14 +188,17 @@ def prepare(args):
     if running:
         raise ValueError(f"resource preflight requires no other running containers: {running}")
     info = json.loads(closure.output("docker", "info", "--format", "{{json .}}"))
+    if not 1 <= args.threads <= info["NCPU"]:
+        raise ValueError("thread count exceeds available Docker CPUs")
     if info["MemTotal"] < 4 * 1024**3 or shutil.disk_usage(timing).free < MIN_DISK:
         raise ValueError("insufficient Docker memory or disk for controlled trial")
     image = json.loads(closure.output("docker", "image", "inspect", closure.IMAGE))[0]
     destination.mkdir(parents=True, exist_ok=False)
     config["DRT_SAVE_DRC_REPORT_ITERS"] = 1
+    config["OPENROAD_THREADS"] = args.threads
     closure.write(destination / "config.json", config)
     closure.write(destination / "state.json", state)
-    for name in ("v2_route_trial.py", "v2_route_monitor.py", "v2_route_geometry.py", "v2_closure.py", "local_flow.py"):
+    for name in ("v2_route_trial.py", "v2_route_flow.py", "v2_route_monitor.py", "v2_route_geometry.py", "v2_closure.py", "local_flow.py"):
         shutil.copy2(ROOT / "tools" / name, destination / name)
     command = ["docker", "run", "--detach", "--name", args.name, "--network", "none",
                "-v", f"{destination}:/closure", "-v", f"{timing}:/timing:ro", "-w", "/closure"]
@@ -207,6 +212,9 @@ def prepare(args):
                 "timing_gate_sha256": closure.sha(timing / "timing-gate.json"),
                 "predecessor_artifact_sha256": artifacts, "command": command,
                 "container_name": args.name, "docker_memory_bytes": info["MemTotal"],
+                "docker_cpus": info["NCPU"], "threads": args.threads,
+                "routing_search": {"seed": args.seed, "swaps_per_net": args.swaps_per_net},
+                "max_runtime_hours": args.max_runtime_hours,
                 "memory_stop_bytes": info["MemTotal"] - MEMORY_RESERVE,
                 "disk_free_bytes": shutil.disk_usage(destination).free,
                 "prepared_sha256": {p.name: closure.sha(p) for p in destination.iterdir() if p.is_file()}}
@@ -214,6 +222,11 @@ def prepare(args):
     if args.launch:
         manifest["container_id"] = closure.output(*command)
         closure.write(destination / "manifest.json", manifest)
+        if sys.platform == "darwin":
+            with (destination / "idle-sleep-guard.log").open("w") as log:
+                guard = subprocess.Popen(["caffeinate", "-i", "docker", "wait", args.name],
+                                         stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+            closure.write(destination / "idle-sleep-guard.json", {"pid": guard.pid, "container": args.name})
     return destination
 
 
@@ -223,8 +236,14 @@ def main():
     parser.add_argument("--output", type=Path)
     parser.add_argument("--name", default="v2-closure-hold005")
     parser.add_argument("--launch", action="store_true")
+    parser.add_argument("--threads", type=int, default=2)
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--swaps-per-net", type=int, choices=range(11), default=0)
+    parser.add_argument("--max-runtime-hours", type=float, default=14)
     parser.add_argument("--inside", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if args.seed < 0 or not 0 < args.max_runtime_hours <= 48:
+        parser.error("seed must be nonnegative and runtime must be in (0, 48] hours")
     if args.inside:
         return inside()
     if args.timing is None or args.output is None:

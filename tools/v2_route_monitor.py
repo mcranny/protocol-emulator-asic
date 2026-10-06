@@ -72,11 +72,26 @@ def stalled(progress, window=10):
     return best > 0 and recent[0]["violations"] - best < max(1, recent[0]["violations"] * 0.01)
 
 
+def plateau_stop_reason(progress):
+    entries = progress["completed"]
+    if len(entries) < 5 or entries[-1]["iteration"] < 40:
+        return None
+    recent = entries[-5:]
+    if (len({entry["run"] for entry in recent}) == 1
+            and len({entry["violations"] for entry in recent}) == 1
+            and recent[0]["violations"] > 0):
+        return "late routing plateau: five completed iterations with unchanged nonzero violations"
+    if entries[-1]["iteration"] >= 50 and stalled(progress):
+        return "late routing plateau: <1% improvement across 10 completed iterations"
+    return None
+
+
 def sample(root, destination=None):
     destination = root if destination is None else destination
     destination.mkdir(parents=True, exist_ok=True)
     sample = {"unix_time": time.time(), "disk_free_bytes": shutil.disk_usage(root).free}
-    for name in ("memory.current", "memory.peak", "memory.swap.current", "memory.swap.peak", "memory.events"):
+    for name in ("memory.current", "memory.peak", "memory.swap.current", "memory.swap.peak", "memory.events",
+                 "cpu.stat", "cpu.max", "cpu.pressure", "memory.pressure"):
         path = Path("/sys/fs/cgroup") / name
         if path.exists():
             sample[name] = path.read_text().strip()
