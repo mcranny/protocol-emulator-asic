@@ -1,7 +1,19 @@
 """Live viewer keeps running state, partial reports and stale evidence distinct."""
 import json
 
-from tools.v2_route_viewer import snapshot
+from tools.v2_route_viewer import snapshot, antenna_progress
+
+
+def test_antenna_counts_distinguish_insertion_from_verified_repair():
+    log = 'Found 94 net violations.\nInserted 112 diodes.\n'
+    pending = antenna_progress(log, 94)
+    assert pending['last_checked_nets'] == 94
+    assert pending['inserted_diodes'] == 112
+    assert pending['check_pending']
+    checked = antenna_progress(log + 'Found 0 net violations.\n', 94)
+    assert checked['last_checked_nets'] == 0
+    assert not checked['check_pending']
+    assert antenna_progress('', 94)['last_checked_nets'] is None
 
 
 def write(path, data):
