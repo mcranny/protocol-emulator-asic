@@ -1,4 +1,4 @@
-"""V2 physical candidates preserve constraints with supported routing layers."""
+"""V2 physical candidates preserve constraints with qualified routing settings."""
 import hashlib
 import json
 import shutil
@@ -36,6 +36,9 @@ def test_candidate_resolves_signal_and_clock_ranges_without_relaxing_limits(cand
     config.update(local_flow.user_config(project, {"6x4": "0 0 1289.28 710.64"}))
     assert (config["RT_MIN_LAYER"], config["RT_MAX_LAYER"]) == ("Metal2", "Metal4")
     assert (config["RT_CLOCK_MIN_LAYER"], config.get("RT_CLOCK_MAX_LAYER", config["RT_MAX_LAYER"])) == ("Metal2", "Metal4")
+    assert config["PL_RESIZER_HOLD_SLACK_MARGIN"] == 0.05
+    assert config["DRT_ANTENNA_REPAIR_DIODE_ONLY"] is True
+    assert config["DRT_ANTENNA_REPAIR_JUMPER_ONLY"] is False
     assert config["CLOCK_PERIOD"] == 40
     assert config["MAX_TRANSITION_CONSTRAINT"] == 1.5
     assert config["DIE_AREA"] == "0 0 1289.28 710.64"
@@ -70,3 +73,15 @@ def test_candidate_rejects_unreviewed_overrides(candidate_source, tmp_path, key,
     with pytest.raises(ValueError, match="unexpected V2 physical override"):
         v2_candidate.prepare(destination)
     assert not destination.exists()
+
+
+@pytest.mark.parametrize("key,value", [("RT_MIN_LAYER", "Metal1"),
+    ("RT_CLOCK_MAX_LAYER", "TopMetal1"), ("PL_RESIZER_HOLD_SLACK_MARGIN", 0),
+    ("DRT_ANTENNA_REPAIR_DIODE_ONLY", False)])
+def test_candidate_rejects_drift_from_closure_recipe(candidate_source, tmp_path, key, value):
+    path = candidate_source / "physical/v2/overrides.json"
+    overrides = json.loads(path.read_text())
+    overrides[key] = value
+    path.write_text(json.dumps(overrides))
+    with pytest.raises(ValueError, match="closure override changed"):
+        v2_candidate.prepare(tmp_path / "candidate")

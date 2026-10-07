@@ -28,8 +28,17 @@ def prepare(destination):
                          "GRT_ADJUSTMENT", "GRT_DESIGN_REPAIR_MAX_SLEW_PCT",
                          "GRT_ANTENNA_REPAIR_MARGIN", "GRT_ANTENNA_REPAIR_ITERS",
                          "DRT_ANTENNA_REPAIR_ITERS", "DRT_ANTENNA_REPAIR_JUMPER_ONLY",
-                         "RT_MIN_LAYER", "RT_CLOCK_MIN_LAYER"}:
+                         "RT_MIN_LAYER", "RT_CLOCK_MIN_LAYER", "RT_CLOCK_MAX_LAYER",
+                         "PL_RESIZER_HOLD_SLACK_MARGIN", "GRT_RESIZER_HOLD_SLACK_MARGIN",
+                         "DRT_ANTENNA_REPAIR_DIODE_ONLY"}:
         raise ValueError("unexpected V2 physical override; review required")
+    fixed = {"RT_MIN_LAYER": "Metal2", "RT_CLOCK_MIN_LAYER": "Metal2",
+             "RT_CLOCK_MAX_LAYER": "Metal4", "PL_RESIZER_HOLD_SLACK_MARGIN": 0.05,
+             "GRT_RESIZER_HOLD_SLACK_MARGIN": 0.05,
+             "DRT_ANTENNA_REPAIR_JUMPER_ONLY": False, "DRT_ANTENNA_REPAIR_DIODE_ONLY": True}
+    for key, expected in fixed.items():
+        if overrides.get(key) != expected:
+            raise ValueError(f"V2 closure override changed: {key}")
     config.update(overrides)
     destination = Path(destination).resolve()
     destination.mkdir(parents=True, exist_ok=False)
