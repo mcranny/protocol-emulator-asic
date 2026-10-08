@@ -88,3 +88,14 @@ def test_existing_results_are_never_reused(tmp_path, monkeypatch):
     with pytest.raises(FileExistsError):
         runner.validate(netlist, tmp_path / 'pdk', output)
     assert commands == []
+
+
+def test_selected_only_cocotb_report_preserves_exact_identity(tmp_path):
+    from tools.validate_gatelevel import selected_case
+    from tools.check_v2 import PIN_SUITES
+    name = sorted(PIN_SUITES)[0]
+    path = tmp_path / 'filtered.xml'
+    path.write_text(f'<testsuites><testsuite><testcase name="{name}" sim_time_ns="10"/></testsuite></testsuites>')
+    assert selected_case(path, name).get('name') == name
+    with pytest.raises(ValueError, match='collected suites'):
+        selected_case(path, sorted(PIN_SUITES)[1])
