@@ -4,7 +4,7 @@ from pathlib import Path
 
 import cocotb
 from cocotb.clock import Clock
-from cocotb.triggers import ClockCycles, RisingEdge, Timer
+from cocotb.triggers import ClockCycles, RisingEdge, FallingEdge, Timer
 from cocotb.utils import get_sim_time
 
 from test import Host, reset, capture, decode_uart
@@ -199,8 +199,12 @@ async def v2_capture_host_and_noninterference(dut):
     status, words = await capture_words(h)
     assert status & 7 == 2 and words[0] & 12 == 12
     await h.request(0x30)
+    # Keep ena stable across the sampling edge. Driving at RisingEdge races
+    # the zero-delay gate netlist's clock tree and combinational enable paths.
+    await FallingEdge(dut.clk)
     dut.ena.value = 0
     await ClockCycles(dut.clk, 5)
+    await FallingEdge(dut.clk)
     dut.ena.value = 1
     await ClockCycles(dut.clk, 5)
     status, words = await capture_words(h)
