@@ -148,7 +148,20 @@ def inside():
         for key in ('magic__drc_error__count', 'design__lvs_error__count'):
             if metrics.get(key) != 0:
                 issues.append(f'missing/nonzero signoff metric {key}: {metrics.get(key)}')
-        status.update(passed=not issues, issues=issues)
+        run([sys.executable, '/closure/v2_mapped_audit.py',
+             f'/closure/runs/signoff/final/nl/{TOP}.nl.v', '/closure/mapping-audit.json'],
+            'auditing final mapped netlist')
+        mapping = closure.read(root / 'mapping-audit.json')
+        # Retain the raw metrics and bind this measured addition to both inputs.
+        metrics['design__instance_unmapped__count'] = mapping['unmapped_count']
+        closure.write(root / 'acceptance-metrics.json', metrics)
+        closure.write(root / 'metrics-provenance.json', dict(
+            raw_metrics_sha256=closure.sha(root / 'runs/signoff/final/metrics.json'),
+            mapping_audit_sha256=closure.sha(root / 'mapping-audit.json'),
+            added_metric='design__instance_unmapped__count'))
+        closure.write(root / 'physical-artifacts.json', {
+            str(p.relative_to(root)): closure.sha(p) for p in (root / 'runs/signoff/final').rglob('*') if p.is_file()})
+        status.update(passed=not issues and mapping['passed'], issues=issues)
         if issues:
             status['stop_reason'] = 'signoff gates failed'
     except BaseException as error:
@@ -213,7 +226,7 @@ def prepare(args):
     shutil.copytree(previous / 'src', dest / 'src')
     names = ('v2_fanout_repair.py', 'v2_antenna_repair.py', 'v2_antenna_connectivity.py',
              'v2_closure.py', 'v2_route_trial.py', 'v2_route_monitor.py', 'local_flow.py',
-             'validate_local.py', 'check_v2.py', 'check_physical.py')
+             'validate_local.py', 'check_v2.py', 'check_physical.py', 'v2_mapped_audit.py')
     for name in names:shutil.copy2(ROOT / 'tools' / name, dest / name)
     closure.write(dest / 'resolved.json', cfg)
     closure.write(dest / 'state.json', state)
