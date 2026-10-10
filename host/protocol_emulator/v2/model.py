@@ -216,11 +216,34 @@ class Engine(V1Model):
         self.advance()
 
 
+class InputFilter:
+    """Three equal synchronized samples, returned with register-edge semantics."""
+    def __init__(self):
+        self.history = [0, 0]
+        self.value = 0
+
+    def tick(self, samples):
+        old = self.value
+        for bit in range(8):
+            levels = [value >> bit & 1 for value in (*self.history, samples)]
+            if all(levels): self.value |= 1 << bit
+            elif not any(levels): self.value &= ~(1 << bit)
+        self.history = [self.history[1], samples]
+        return old
+
+
 class Device:
     def __init__(self, capacity=128):
         self.engines = [Engine(capacity), Engine(capacity)]
         self.cycle = 0
         self.capture = Capture()
+        self.input_filter = InputFilter()
+        self.filter_mask = 0
+
+    def configure_filter(self, mask):
+        if type(mask) is not int or not 0 <= mask <= 255 or any(e.running for e in self.engines):
+            raise ValueError("filter configuration requires valid mask and stopped engines")
+        self.filter_mask = mask
 
     def configure(self, owners, open_drain=(0, 0)):
         if any(e.running for e in self.engines):
@@ -246,12 +269,16 @@ class Device:
     def tick(self, pins=0, *, enable=True, reset=False, frame_error=False,
              capture_arm=None, capture_stop=False):
         self.cycle += 1
+        filtered = self.input_filter.tick(pins)
+        observed = (pins & ~self.filter_mask) | (filtered & self.filter_mask)
         flags = (int(any(e.errors for e in self.engines)) << 2
                  | sum(bool(e.marker) << i for i, e in enumerate(self.engines))
                  | sum(bool(e.running) << (i + 4) for i, e in enumerate(self.engines)))
         sample = Sample(pins, *self.pins, flags)
         if reset:
             self.capture.reset()
+            self.input_filter = InputFilter()
+            self.filter_mask = 0
         elif not enable:
             self.capture.disable()
         elif capture_arm is not None:
@@ -271,7 +298,7 @@ class Device:
             elif frame_error:
                 engine.fault(FRAME)
             else:
-                engine.tick(pins)
+                engine.tick(observed)
         return self.pins
 
     @property

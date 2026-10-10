@@ -9,9 +9,15 @@ from cocotb.utils import get_sim_time
 
 from test import Host, reset, capture, decode_uart
 from protocol_emulator.v2.isa import assemble
-from protocol_emulator.v2.firmware import uart_rx, uart_tx, spi_target, spi_controller, i2c_controller, i2c_target
+from protocol_emulator.v2.firmware import uart_rx, uart_tx, spi_target, spi_controller, i2c_controller, i2c_target, i2c_bus_clear
 from protocol_emulator.v2.peers import I2CTarget
 from protocol_emulator.v2.host import command_frame, tx_commands, parse_response
+from protocol_emulator.v2.replay import OutputEvent, compile_schedule
+from protocol_emulator.v2.scenario import uart_demo, spi_demo, i2c_demo, write_artifacts
+from protocol_emulator.v2.peers import decode_uart as decode_uart_events, decode_spi, decode_i2c
+from protocol_emulator.v2.model import FIRMWARE
+from protocol_emulator.model import TIMEOUT
+from protocol_emulator.v2.custom_protocol import transmit as custom_tx, receive as custom_rx, decode as custom_decode
 
 
 async def capture_words(host):
@@ -136,7 +142,7 @@ async def v2_capture_host_and_noninterference(dut):
     for enabled in (False, True):
         await reset(dut)
         h = Host(dut)
-        assert await h.request(11) == 0x20001F
+        assert await h.request(11) == 0x20003F
         await h.request(0x21, payload=1)
         await load(h, 0, "DRIVE 0, 1\nMARK 1\nDELAY 8\nSET 1, 1\nDELAY 8\nSET 1, 0\nDELAY 8\nHALT")
         if enabled:
@@ -200,6 +206,116 @@ async def v2_capture_host_and_noninterference(dut):
     status, words = await capture_words(h)
     assert status >> 3 & 7 == 7  # disabled captures remain diagnostic-only
     assert status & 7 == 2 and words
+
+
+@cocotb.test()
+async def v2_uart_fault_capture_and_scenario(dut):
+    cocotb.start_soon(Clock(dut.clk, 40, unit="ns").start())
+    for bad_stop in (True, False):
+        scenario = uart_demo(bad_stop=bad_stop, period=25)
+        await reset(dut)
+        h = Host(dut)
+        await h.request(0x21, payload=1)
+        for engine, image in enumerate(scenario["firmware"]):
+            await batch(h, [command_frame(1, engine, i, word) for i, word in enumerate(image["words"])])
+        await h.request(7, payload=scenario["tx"][0][0])
+        await h.request(0x30, payload=0x0102)
+        external = [255]
+        levels = []
+        def resolve_inputs():
+            out, oe = int(dut.uio_out.value), int(dut.uio_oe.value)
+            dut.uio_in.value = external[0] & ~oe | out & oe
+
+        async def stimulus(origin):
+            for edge in scenario["external_stimulus"]:
+                wait = origin + edge["time_ns"] - int(get_sim_time(unit="ns"))
+                assert wait > 0
+                await Timer(wait, unit="ns")
+                external[0] = edge["inputs"]
+                resolve_inputs()
+
+        async def observe():
+            for _ in range(3000):
+                await RisingEdge(dut.clk)
+                await Timer(1, unit="ns")
+                if int(dut.uo_out.value) & 6:
+                    break
+            else:
+                raise AssertionError("scenario did not start")
+            origin = int(get_sim_time(unit="ns")) + 39
+            peer = cocotb.start_soon(stimulus(origin))
+            index = 0
+            events = scenario["expected"]["outputs"]
+            for cycle in range(scenario["end_cycle"] + 1):
+                await RisingEdge(dut.clk)
+                await Timer(1, unit="ns")
+                if index + 1 < len(events) and events[index + 1]["cycle"] == cycle:
+                    index += 1
+                out, oe = int(dut.uio_out.value), int(dut.uio_oe.value)
+                assert (out, oe) == (events[index]["outputs"], events[index]["enables"]), cycle
+                assert not int(dut.uo_out.value) & 8
+                resolve_inputs()
+                level = external[0] & ~oe | out & oe
+                if not levels or levels[-1][1] != level:
+                    levels.append((cycle * 40, level))
+            await peer
+
+        observer = cocotb.start_soon(observe())
+        await h.request(0x20, payload=3)
+        await observer
+        await h.request(0x31)
+        status, words = await capture_words(h)
+        assert status & 63 == 3 << 3 | 2
+        origin = words[0] >> 32
+        records = [{"cycle": (word >> 32) - origin, "inputs": word >> 24 & 255,
+                    "outputs": word >> 16 & 255, "enables": word >> 8 & 255,
+                    "flags": word & 255} for word in words]
+        expected = scenario["expected"]["capture"]
+        assert records == [dict(record, cycle=record["cycle"] - expected["trigger_cycle"])
+                           for record in expected["records"]]
+        received = await h.request(0x13, addr=128)
+        assert received >> 16 == 1 and received & 65535 == scenario["seed"] % 256
+        assert decode_uart_events(levels, end_ns=(scenario["end_cycle"] + 1) * 40,
+                                  period_ns=1000) == scenario["expected"]["decoded"]
+        output = Path(__file__).parent / "output" / ("v2-uart-fault" if bad_stop else "v2-uart-fixed")
+        write_artifacts(scenario, output)
+
+
+@cocotb.test()
+async def v2_bounded_firmware_playback(dut):
+    cocotb.start_soon(Clock(dut.clk, 40, unit="ns").start())
+    await reset(dut)
+    h = Host(dut)
+    await h.request(0x21, payload=0x0203)
+    events = [OutputEvent(0, 1, 3), OutputEvent(1, 1, 1), OutputEvent(2, 0, 3),
+              OutputEvent(65539, 1, 1), OutputEvent(65542, 0, 0)]
+    end = 65545
+    words = compile_schedule(events, end_cycle=end, owner=3, open_drain=2)
+    await batch(h, [command_frame(1, address=i, value=word) for i, word in enumerate(words)])
+    assert await batch(h, [command_frame(2, address=i) for i in range(len(words))]) == words
+
+    async def observe():
+        # START sets running on its control edge; execution begins next edge.
+        for _ in range(3000):
+            await RisingEdge(dut.clk)
+            await Timer(1, unit="ns")
+            if int(dut.uo_out.value) & 2:
+                break
+        else:
+            raise AssertionError("playback did not start")
+        index = 0
+        for cycle in range(end + 2):
+            await RisingEdge(dut.clk)
+            await Timer(1, unit="ns")
+            if index + 1 < len(events) and cycle == events[index + 1].cycle:
+                index += 1
+            expected = (events[index].outputs, events[index].enables) if cycle <= end else (0, 0)
+            assert (int(dut.uio_out.value), int(dut.uio_oe.value)) == expected, cycle
+            assert bool(int(dut.uo_out.value) & 2) == (cycle <= end), cycle
+            assert not int(dut.uo_out.value) & 8
+    observer = cocotb.start_soon(observe())
+    await h.request(3)
+    await observer
 
 
 @cocotb.test()
@@ -384,18 +500,36 @@ async def v2_i2c_controller_independent_peer(dut):
         await reset(dut)
         h = Host(dut)
         await h.request(0x21, payload=0x0303)
-        await load(h, 0, i2c_controller(write_count=writes, read_count=reads, frequency=frequency))
+        await h.request(0x25, payload=3)
+        await load(h, 0, i2c_controller(write_count=writes, read_count=reads, frequency=frequency, filtered=True))
         await batch(h, tx_commands(0, [0x55, 0xA5][:writes]))
         peer = I2CTarget(read_data=bytes([0x81, 0x55, 0xA5]))
-        edges = []
+        edges, data_setup, start_setup, start_hold, stop_setup = [], [], [], [], []
         async def resolve_bus():
             previous = 3
+            last_data = last_rise = get_sim_time(unit="ns")
+            pending_start = None
             while True:
                 await Timer(10, unit="ns")
                 value, enable = int(dut.uio_out.value), int(dut.uio_oe.value)
                 bus = (value | ~enable) & ~peer.drive_low & 3
+                now = get_sim_time(unit="ns")
+                if (bus ^ previous) & 1:
+                    last_data = now
+                    if bus & previous & 2:
+                        if bus & 1:
+                            stop_setup.append(now - last_rise)
+                        else:
+                            start_setup.append(now - last_rise)
+                            pending_start = now
                 if (bus ^ previous) & 2:
-                    edges.append((get_sim_time(unit="ns"), bool(bus & 2)))
+                    edges.append((now, bool(bus & 2)))
+                    if bus & 2:
+                        data_setup.append(now - last_data)
+                        last_rise = now
+                    elif pending_start is not None:
+                        start_hold.append(now - pending_start)
+                        pending_start = None
                 previous = bus
                 peer.observe(bus)
                 dut.uio_in.value = 252 | ((value | ~enable) & ~peer.drive_low & 3)
@@ -418,26 +552,41 @@ async def v2_i2c_controller_independent_peer(dut):
         assert min(low) >= (4700 if frequency == 100_000 else 1300)
         assert min(high) >= (4000 if frequency == 100_000 else 600)
         assert 1e9 / frequency <= fastest <= 1.04e9 / frequency
+        assert min(data_setup) >= (250 if frequency == 100_000 else 100)
+        assert min(start_setup) >= (4700 if frequency == 100_000 else 600)
+        assert min(start_hold) >= (4000 if frequency == 100_000 else 600)
+        assert min(stop_setup) >= (4000 if frequency == 100_000 else 600)
 
 
 @cocotb.test()
 async def v2_i2c_target_independent_peer(dut):
     cocotb.start_soon(Clock(dut.clk, 40, unit="ns").start())
-    for low_ns, high_ns in ((1300, 1200), (5000, 5000)):
+    for low_ns, high_ns, starved in ((lo, hi, starved) for lo, hi in
+                                     ((1300, 1200), (5000, 5000)) for starved in (False, True)):
         await reset(dut)
         h = Host(dut)
         await h.request(0x21, payload=0x0303)
+        await h.request(0x25, payload=3)
         await h.request(0x22, payload=0x010203)
         await h.request(0x23, payload=0x010303)
         await h.request(0x24, payload=3)
-        await load(h, 0, i2c_target())
-        await batch(h, tx_commands(0, [0xA5, 0x81]))
+        await load(h, 0, i2c_target(frequency=100_000 if low_ns == 5000 else 400_000))
+        if not starved:
+            await batch(h, tx_commands(0, [0x25, 0x81]))
         master = [3]
         bus = [3]
+        data_setup = []
         async def resolve_bus():
+            previous, last_data = 3, get_sim_time(unit="ns")
             while True:
                 value, enable = int(dut.uio_out.value), int(dut.uio_oe.value)
                 bus[0] = master[0] & (value | ~enable) & 3
+                now = get_sim_time(unit="ns")
+                if (bus[0] ^ previous) & 1:
+                    last_data = now
+                if bus[0] & 2 and not previous & 2:
+                    data_setup.append(now - last_data)
+                previous = bus[0]
                 dut.uio_in.value = 252 | bus[0]
                 await Timer(10, unit="ns")
         resolver = cocotb.start_soon(resolve_bus())
@@ -447,7 +596,7 @@ async def v2_i2c_target_independent_peer(dut):
             await Timer(duration, unit="ns")
         async def high(sda):
             master[0] = 2 | sda
-            for _ in range(1000):
+            for _ in range(20000):
                 await Timer(10, unit="ns")
                 if bus[0] & 2:
                     break
@@ -456,8 +605,8 @@ async def v2_i2c_target_independent_peer(dut):
             await Timer(high_ns - 10, unit="ns")
             return bus[0] & 1
         async def start():
-            await drive(3, 1500)
-            await drive(2, 1500)
+            await drive(3, 5000 if low_ns == 5000 else 1500)
+            await drive(2, 5000 if low_ns == 5000 else 1500)
             await drive(0, low_ns)
         async def write(value):
             for bit in range(7, -1, -1):
@@ -484,8 +633,27 @@ async def v2_i2c_target_independent_peer(dut):
         await write(0x55)
         await start()
         await write(0x85)
-        assert await read(True) == 0xA5
+        async def delayed_refill():
+            # The controller has released SCL, but the empty target holds it low.
+            for _ in range(2000):
+                await Timer(10, unit="ns")
+                if master[0] & 2 and not bus[0] & 2:
+                    break
+            else:
+                raise AssertionError("empty target did not stretch SCL")
+            await Timer(20000, unit="ns")
+            assert not bus[0] & 2
+            await batch(h, tx_commands(0, [0x25, 0x81]))
+        refill = cocotb.start_soon(delayed_refill()) if starved else None
+        before_read = len(data_setup)
+        assert await read(True) == 0x25
         assert await read(False) == 0x81
+        if refill is not None:
+            await refill
+        assert min(data_setup) >= (250 if low_ns == 5000 else 100)
+        # First data bit changes SDA while SCL is held low, including a host
+        # refill after stretching. Include the profile's rise-time allowance.
+        assert data_setup[before_read] >= (1250 if low_ns == 5000 else 400)
         await drive(0, low_ns)
         await high(0)
         await drive(3, 2000)
@@ -493,3 +661,259 @@ async def v2_i2c_target_independent_peer(dut):
         assert await h.request(6) == 1
         assert int(dut.uio_oe.value) == 0
         resolver.cancel()
+
+
+@cocotb.test()
+async def v2_protocol_faults(dut):
+    """CS aborts, underrun and externally imposed I2C faults through pins only."""
+    cocotb.start_soon(Clock(dut.clk, 40, unit="ns").start())
+    for mode in range(4):
+        await reset(dut)
+        h = Host(dut)
+        idle = (mode >> 1) << 1
+        dut.uio_in.value = 4 | idle
+        await h.request(0x21, payload=8)
+        await h.request(0x22, payload=0x040404)
+        await h.request(0x24, payload=1)
+        await load(h, 0, spi_target(mode))
+        for partial in (0, 3, 7):
+            await h.request(5)
+            await batch(h, tx_commands(0, [0xA5, 0x5A]))
+            await h.request(3)
+            dut.uio_in.value = idle
+            await Timer(1203, unit="ns")
+            for _ in range(partial):
+                dut.uio_in.value = idle ^ 2
+                await Timer(500, unit="ns")
+                dut.uio_in.value = idle
+                await Timer(500, unit="ns")
+            dut.uio_in.value = 4 | idle
+            await Timer(1200, unit="ns")
+            assert int(dut.uio_oe.value) == 0
+            assert await h.request(6) == 1
+            assert await h.request(8) >> 5 == 0
+            # A fresh CS assertion must consume the next TX item and receive
+            # a complete byte, with no partial data retained from the abort.
+            dut.uio_in.value = idle | 1
+            await Timer(1200, unit="ns")
+            got = 0
+            for _ in range(8):
+                if not mode & 1: got = got << 1 | (int(dut.uio_out.value) >> 3 & 1)
+                dut.uio_in.value = (idle ^ 2) | 1
+                await Timer(500, unit="ns")
+                if mode & 1: got = got << 1 | (int(dut.uio_out.value) >> 3 & 1)
+                dut.uio_in.value = idle | 1
+                await Timer(500, unit="ns")
+            dut.uio_in.value = 4 | idle
+            await Timer(1200, unit="ns")
+            assert got == 0x5A
+            assert await h.request(0x13) & 65535 == 255
+            assert await h.request(6) == 1 and int(dut.uio_oe.value) == 0
+        await h.request(5)
+        await h.request(3)
+        dut.uio_in.value = idle
+        await Timer(1200, unit="ns")
+        dut.uio_in.value = idle ^ 2
+        await Timer(1200, unit="ns")
+        status = await h.request(6)
+        assert not status & 1 and status >> 1 & FIRMWARE
+        assert int(dut.uio_oe.value) == 0
+
+    for fault in ('nack', 'arbitration', 'sda_stuck', 'scl_stuck'):
+        await reset(dut)
+        h = Host(dut)
+        await h.request(0x21, payload=0x0303)
+        await load(h, 0, i2c_controller(frequency=400_000))
+        await batch(h, tx_commands(0, [0x55]))
+        async def resolve_fault():
+            started = False
+            while True:
+                out, oe = int(dut.uio_out.value), int(dut.uio_oe.value)
+                assert out & oe & 3 == 0
+                bus = (out | ~oe) & 3
+                started |= bool(oe & 3)
+                if fault == 'sda_stuck' or (fault == 'arbitration' and started): bus &= 2
+                elif fault == 'scl_stuck': bus &= 1
+                dut.uio_in.value = 252 | bus
+                await Timer(10, unit="ns")
+        resolver = cocotb.start_soon(resolve_fault())
+        await h.request(3)
+        await Timer(2_700_000 if fault.endswith('stuck') else 60_000, unit="ns")
+        status = await h.request(6)
+        assert not status & 1 and status >> 1 & (TIMEOUT if fault.endswith('stuck') else FIRMWARE)
+        assert int(dut.uio_oe.value) == 0
+        assert await h.request(8) >> 5 == 0
+        resolver.cancel()
+
+
+    for frequency in (100_000, 400_000):
+        await reset(dut)
+        h = Host(dut)
+        await h.request(0x21, payload=0x0303)
+        await load(h, 0, i2c_bus_clear(frequency))
+        pulses = [0]
+        async def recovering_peer():
+            previous = 2
+            while True:
+                out, oe = int(dut.uio_out.value), int(dut.uio_oe.value)
+                bus = (out | ~oe) & 3
+                if bus & 2 and not previous & 2: pulses[0] += 1
+                if pulses[0] < 9: bus &= 2
+                dut.uio_in.value = 252 | bus
+                previous = bus
+                await Timer(10, unit='ns')
+        resolver = cocotb.start_soon(recovering_peer())
+        await h.request(3)
+        await Timer(150_000, unit='ns')
+        assert await h.request(6) == 0
+        assert pulses[0] == 10
+        assert int(dut.uio_oe.value) == 0
+        resolver.cancel()
+
+
+@cocotb.test()
+async def v2_spi_i2c_fault_scenarios(dut):
+    """The exported scenarios execute as ordinary firmware with independent peers."""
+    cocotb.start_soon(Clock(dut.clk, 40, unit="ns").start())
+    scenarios = [spi_demo(delayed=fault) for fault in (True, False)]
+    scenarios += [i2c_demo(nack=fault) for fault in (True, False)]
+    for number, scenario in enumerate(scenarios):
+        await reset(dut)
+        h = Host(dut)
+        config = scenario['configuration']
+        external = [scenario['initial_state']['inputs']]
+        dut.uio_in.value = external[0]
+        for engine, image in enumerate(scenario['firmware']):
+            await h.request(0x21, addr=engine << 7,
+                            payload=config['owners'][engine] | config['open_drain'][engine] << 8)
+            words = image['words']
+            await batch(h, [command_frame(1, engine, i, word) for i, word in enumerate(words)])
+            assert await batch(h, [command_frame(2, engine, i) for i in range(len(words))]) == words
+        await h.request(0x30, payload=scenario['capture']['mask'] << 8 | 1)
+        levels = []
+        def resolve():
+            out, oe = int(dut.uio_out.value), int(dut.uio_oe.value)
+            dut.uio_in.value = (external[0] & ~oe) | (out & oe)
+        async def stimulus(origin):
+            for edge in scenario['external_stimulus']:
+                delay = origin + edge['time_ns'] - int(get_sim_time(unit='ns'))
+                assert delay > 0
+                await Timer(delay, unit='ns')
+                external[0] = edge['inputs']
+                resolve()
+        async def observe():
+            for _ in range(3000):
+                await RisingEdge(dut.clk)
+                await Timer(1, unit='ns')
+                if int(dut.uo_out.value) & 2: break
+            else: raise AssertionError('scenario did not start')
+            peer = cocotb.start_soon(stimulus(int(get_sim_time(unit='ns')) + 39))
+            index = 0
+            events = scenario['expected']['outputs']
+            for cycle in range(scenario['end_cycle'] + 1):
+                await RisingEdge(dut.clk)
+                await Timer(1, unit='ns')
+                if index + 1 < len(events) and events[index + 1]['cycle'] == cycle: index += 1
+                out, oe = int(dut.uio_out.value), int(dut.uio_oe.value)
+                assert (out, oe) == (events[index]['outputs'], events[index]['enables']), cycle
+                assert not int(dut.uo_out.value) & 8
+                resolve()
+                bus = (external[0] & ~oe) | (out & oe)
+                if not levels or levels[-1][1] != bus: levels.append((cycle * 40, bus))
+            await peer
+        observer = cocotb.start_soon(observe())
+        await h.request(0x20, payload=config['start_mask'])
+        await observer
+        await h.request(0x31)
+        status, words = await capture_words(h)
+        assert status & 63 == 3 << 3 | 2
+        origin = words[0] >> 32
+        actual = [{'cycle': (word >> 32) - origin, 'inputs': word >> 24 & 255,
+                   'outputs': word >> 16 & 255, 'enables': word >> 8 & 255,
+                   'flags': word & 255} for word in words]
+        expected = scenario['expected']['capture']
+        assert actual == [dict(r, cycle=r['cycle'] - expected['trigger_cycle']) for r in expected['records']]
+        initial = scenario['initial_state']['inputs']
+        decoded = decode_spi(levels, initial=initial) if number < 2 else decode_i2c(levels, initial=initial)
+        assert decoded == scenario['expected']['decoded']
+        write_artifacts(scenario, Path(__file__).parent / 'output' / f'v2-protocol-scenario-{number}')
+
+
+@cocotb.test()
+async def v2_input_filter_spikes_and_bypass(dut):
+    cocotb.start_soon(Clock(dut.clk, 40, unit='ns').start())
+    for idle in (0, 1):
+        await reset(dut)
+        dut.uio_in.value = idle
+        h = Host(dut)
+        await h.request(0x21, payload=4)
+        await load(h, 0, f'LI 1, 65535\nWAITFOR 0, {1-idle}\nDRIVE 4, 4\nJMP 3')
+        await h.request(0x25, payload=1)
+        assert await h.request(0x26) == 1
+        await h.request(3)
+        await h.request(0x25, payload=0, reject=True)
+        assert await h.request(0x26) == 1
+        for duration in (1, 20, 39, 40, 49, 50):
+            for phase in (1, 17, 39):
+                await RisingEdge(dut.clk)
+                await Timer(phase, unit='ns')
+                dut.uio_in.value = 1 - idle
+                await Timer(duration, unit='ns')
+                dut.uio_in.value = idle
+                await Timer(800, unit='ns')
+                assert int(dut.uio_oe.value) == 0, (idle, duration, phase)
+        # A stable transition must still reach the firmware, with bounded
+        # synchronizer/filter/instruction latency; no timeout-based suppression.
+        await RisingEdge(dut.clk)
+        await Timer(13, unit='ns')
+        origin = int(get_sim_time(unit='ns'))
+        dut.uio_in.value = 1 - idle
+        for _ in range(40):
+            await Timer(10, unit='ns')
+            if int(dut.uio_oe.value) == 4: break
+        else: raise AssertionError('stable input did not pass filter')
+        assert 200 <= int(get_sim_time(unit='ns')) - origin <= 320
+        assert await h.request(6) == 1
+        await h.request(4)
+        await h.request(5)
+        dut.uio_in.value = idle
+        await h.request(0x25, payload=0)
+        await h.request(3)
+        await RisingEdge(dut.clk)
+        await Timer(17, unit='ns')
+        dut.uio_in.value = 1 - idle
+        await Timer(50, unit='ns')
+        dut.uio_in.value = idle
+        await Timer(800, unit='ns')
+        assert int(dut.uio_oe.value) == 4
+
+
+@cocotb.test()
+async def v2_custom_pulse_protocol(dut):
+    cocotb.start_soon(Clock(dut.clk, 40, unit='ns').start())
+    for value in (0, 10, 15):
+        await reset(dut)
+        h = Host(dut)
+        dut.uio_in.value = 0
+        await h.request(0x21, payload=1)
+        for engine, words in enumerate((custom_tx(value), custom_rx())):
+            await batch(h, [command_frame(1, engine, i, word) for i, word in enumerate(words)])
+            assert await batch(h, [command_frame(2, engine, i) for i in range(len(words))]) == words
+        events = []
+        async def loopback():
+            cycle = 0
+            while True:
+                await RisingEdge(dut.clk)
+                await Timer(1, unit='ns')
+                out, oe = int(dut.uio_out.value), int(dut.uio_oe.value)
+                bus = out & oe & 1
+                if not events or events[-1][1] != bus: events.append((cycle, bus))
+                dut.uio_in.value = bus
+                cycle += 1
+        observer = cocotb.start_soon(loopback())
+        await h.request(0x20, payload=3)
+        await Timer(20_000, unit='ns')
+        observer.cancel()
+        assert custom_decode(events) == value
+        assert await h.request(0x13, addr=128) & 65535 == 0x5000 | value
+        assert await h.request(6) == await h.request(6, addr=128) == 0

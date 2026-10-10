@@ -33,6 +33,10 @@ v2-formal:
 	mkdir -p build
 	yosys -Q -T -q -s formal/v2_engine.ys -l build/formal-v2-engine.log
 	@grep 'Induction step proven: SUCCESS' build/formal-v2-engine.log
+	yosys -Q -T -q -s formal/v2_integration.ys -l build/formal-v2-integration.log
+	@grep 'Induction step proven: SUCCESS' build/formal-v2-integration.log
+	yosys -Q -T -q -s formal/v2_input_filter.ys -l build/formal-v2-input-filter.log
+	@grep 'Induction step proven: SUCCESS' build/formal-v2-input-filter.log
 
 v2-capture-test:
 	verilator --lint-only --top-module protocol_capture_v2 src/v2_capture.v

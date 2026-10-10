@@ -5,6 +5,7 @@ Compilation errors and missing/empty result files do not count as detections.
 """
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -38,7 +39,7 @@ def main():
         mutant.write_text(source.replace(before, after, 1))
         sources = [mutant]
         if makefile.endswith("pins"):
-            sources += [ROOT / "src/host_spi.v", ROOT / "src/v2_capture.v", ROOT / "src/v2_project.v"]
+            sources += [ROOT / "src/host_spi.v", ROOT / "src/v2_capture.v", ROOT / "src/v2_input_filter.v", ROOT / "src/v2_project.v"]
         result_path = directory / "results.xml"
         result_path.unlink(missing_ok=True)
         command = ["make", "-C", str(ROOT / "test"), "-f", makefile,
@@ -60,6 +61,28 @@ def main():
         if divergence.exists() and makefile in ("Makefile.v2", "Makefile.v2capture"):
             shutil.copy2(divergence, directory / "divergence.json")
     destination = ROOT / "build/v2-mutations/results.json"
+    # A counterexample must also expose a disabled ownership check in the
+    # compositional integration proof; a parser/tool failure is not detection.
+    name = "ownership_overlap"
+    directory = ROOT / "build/v2-mutations" / name
+    directory.mkdir(parents=True, exist_ok=True)
+    source = (ROOT / "src/v2_project.v").read_text()
+    anchor = "|(payload[7:0] & (select_engine ? owner0 : owner1))"
+    if source.count(anchor) != 1:
+        raise ValueError("ownership mutation anchor is not unique")
+    mutant = directory / "v2_project.v"
+    mutant.write_text(source.replace(anchor, "1'b0"))
+    script = directory / "proof.ys"
+    script.write_text((ROOT / "formal/v2_integration.ys").read_text().replace("src/v2_project.v", str(mutant)))
+    log_path = directory / "proof.log"
+    with (directory / "test.log").open('w') as log:
+        completed = subprocess.run(['yosys', '-Q', '-T', '-s', str(script), '-l', str(log_path)],
+                                   cwd=ROOT, stdout=log, stderr=subprocess.STDOUT)
+    log_text = log_path.read_text() if log_path.exists() else ''
+    detected = bool(completed.returncode != 0 and "proof did fail" in log_text
+                    and re.search(r"model found.*: FAIL!", log_text))
+    results.append({"mutation": name, "test": "v2_integration_induction", "detected": detected,
+                    "returncode": completed.returncode})
     destination.write_text(json.dumps(results, indent=2) + "\n")
     print(json.dumps(results, indent=2))
     return 0 if all(result["detected"] for result in results) else 1

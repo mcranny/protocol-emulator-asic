@@ -109,7 +109,7 @@ def sizes():
     return {name: len(assemble(source)) for name, source in sources.items()}
 
 
-def i2c_controller(address=0x42, write_count=1, read_count=0, half=None, frequency=400_000):
+def i2c_controller(address=0x42, write_count=1, read_count=0, half=None, frequency=400_000, filtered=False):
     """SDA=0/SCL=1, both open-drain. Optional combined write/repeated-start/read.
 
     Byte counts are firmware parameters. TX contains write data; RX contains
@@ -123,9 +123,13 @@ def i2c_controller(address=0x42, write_count=1, read_count=0, half=None, frequen
         raise ValueError("unsupported I2C frequency")
     if half is None:
         half, high = (120, 121) if frequency == 100_000 else (32, 22)
+        if filtered:
+            # The optional three-sample input filter adds three observation
+            # cycles to each WAIT for the released clock. Preserve wire timing.
+            high -= 3
     else:
         high = half
-    if not write_count + read_count or half < 32:
+    if type(filtered) is not bool or not write_count + read_count or half < 32:
         raise ValueError("unsupported I2C timing/empty transaction")
     lines = ["WAIT 0, 1, 65535", "CALL start"]
     if write_count:
@@ -155,26 +159,29 @@ def i2c_controller(address=0x42, write_count=1, read_count=0, half=None, frequen
     return source.replace(clock_high, "CALL clock_high") + "\nclock_high: " + clock_high + "\nRET"
 
 
-def i2c_target(address=0x42):
+def i2c_target(address=0x42, frequency=400_000):
     """SDA=0/SCL=1; watchers 0=START, 1=STOP, abort mask=3.
 
     One non-reserved seven-bit address, read and write. Host preloads read data;
     starvation is bounded by a software counter while SCL is held low.
     """
-    if not 0x08 <= address <= 0x77:
+    if not 0x08 <= address <= 0x77 or frequency not in (100_000, 400_000):
         raise ValueError("reserved/invalid I2C address")
+    # After a stretched clock, establish SDA before releasing SCL. Include
+    # the standard/fast rise-time and setup allowance (UM10204 table 11).
+    setup = 32 if frequency == 100_000 else 10
     lines = ["DRIVE 3, 3", "LI 1, 65535", "idle: WAITEVENT 1", "BRC idle, 2",
              "address: CLEAREVENT 3", "CLEARIS", "LI 0, 8", "CALL low",
              "address_bit: CALL high", "IN 0, 1", "CALL low", "DJNZ 0, address_bit",
-             "MOVIS 0", f"BREQ write_address, {address << 1}, 0",
-             f"BREQ read_address, {address << 1 | 1}, 0", "JMP idle",
-             "write_address: SET 1, 0", "CALL high", "CALL low", "SET 1, 1",
+             "MOVIS 0", f"BREQ accepted, {address << 1}, 0",
+             f"BREQ accepted, {address << 1 | 1}, 0", "JMP idle",
+             "accepted: SET 1, 0", "CALL high", "CALL low", "SET 1, 1",
+             f"BREQ read, {address << 1 | 1}, 0",
              "write: CLEARIS", "LI 0, 8", "write_bit: CALL high", "IN 0, 1",
              "CALL low", "DJNZ 0, write_bit", "RX 0", "SET 1, 0",
              "CALL high", "CALL low", "SET 1, 1", "JMP write",
-             "read_address: SET 1, 0", "CALL high", "CALL low", "SET 1, 1",
              "read: SET 2, 0", "LI 1, 65535", "refill: PULLNB 0", "BRC empty, 6",
-             "MOVOS 0", "LI 0, 8", "LI 1, 65535", "OUT8 0", "SET 2, 2",
+             "MOVOS 0", "LI 0, 8", "LI 1, 65535", "OUT8 0", f"DELAY {setup}", "SET 2, 2",
              "read_bit: CALL high", "CALL low", "DJNZ 0, next_bit", "JMP read_ack",
              "next_bit: OUT8 0", "JMP read_bit", "read_ack: SET 1, 1", "CALL high",
              "SAMPLE 0, 1", "CALL low", "BREQ idle, 1, 0", "JMP read",
@@ -184,3 +191,21 @@ def i2c_target(address=0x42):
     lines = [line.replace("CALL high", "WAITBR interrupted, 1, 1")
              .replace("CALL low", "WAITBR interrupted, 1, 0") for line in lines]
     return "\n".join(lines)
+
+
+def i2c_bus_clear(frequency=100_000):
+    """Nine open-drain SCL pulses followed by STOP; fail if either line stays low.
+
+    SDA=0/SCL=1. Run only after stopping the ordinary controller firmware.
+    A peer that holds SCL low cannot be recovered by clocking; the bounded WAIT
+    releases both outputs with the normal timeout error in that case.
+    """
+    if frequency not in (100_000, 400_000):
+        raise ValueError("unsupported I2C frequency")
+    low, high = (125, 125) if frequency == 100_000 else (33, 30)
+    return "\n".join([
+        "DRIVE 1, 3", "LI 0, 9", f"pulse: DELAY {low}", "SET 2, 2",
+        "WAIT 1, 1, 65535", f"DELAY {high}", "SET 2, 0", "DJNZ 0, pulse",
+        "SET 1, 0", f"DELAY {low}", "SET 2, 2", "WAIT 1, 1, 65535",
+        f"DELAY {high}", "SET 1, 1", "WAIT 0, 1, 65535", "HALT",
+    ])

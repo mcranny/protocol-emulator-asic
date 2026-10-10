@@ -1,0 +1,9 @@
+read_verilog -formal -D FORMAL_INTEGRATION src/host_spi.v src/v2_engine.v src/v2_capture.v src/v2_input_filter.v src/v2_project.v
+# Black-box submodules; the top states its explicit compositional assumptions.
+blackbox protocol_host_spi protocol_engine_v2 protocol_capture_v2 protocol_input_filter_v2
+prep -top tt_um_mcranny_protocol_emulator_v2
+flatten
+opt
+async2sync
+dffunmap
+sat -seq 4 -tempinduct -maxsteps 16 -set-assumes -prove-asserts -ignore_unknown_cells -verify

@@ -12,14 +12,20 @@ module tt_um_mcranny_protocol_emulator_v2 (
     (* async_reg = "true" *) reg [1:0] reset_pipe;
     (* async_reg = "true" *) reg [7:0] pins_meta, pins_sync;
     reg [7:0] pins_previous;
+    reg [7:0] filter_mask;
+    wire [7:0] filtered_pins;
+    wire [7:0] observed_pins = (pins_sync & ~filter_mask) | (filtered_pins & filter_mask);
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin reset_pipe <= 0; pins_meta <= 0; pins_sync <= 0; pins_previous <= 0; end
         else begin
             reset_pipe <= {reset_pipe[0],1'b1};
-            pins_meta <= uio_in; pins_sync <= pins_meta; pins_previous <= pins_sync;
+            pins_meta <= uio_in; pins_sync <= pins_meta; pins_previous <= observed_pins;
         end
     end
     wire reset_n = reset_pipe[1];
+    protocol_input_filter_v2 input_filter (
+        .clk(clk), .rst_n(reset_n), .samples(pins_sync), .filtered(filtered_pins)
+    );
     wire cmd_valid, frame_error, miso;
     wire [7:0] cmd, addr;
     wire [23:0] payload;
@@ -31,11 +37,11 @@ module tt_um_mcranny_protocol_emulator_v2 (
     );
     reg [7:0] owner0, owner1, od0, od1, abort0, abort1;
     reg [23:0] watch00, watch01, watch10, watch11;
-    wire [7:0] change = pins_sync ^ pins_previous;
-    wire [1:0] event0 = {((pins_sync & watch01[7:0]) == watch01[15:8]) && |(change & watch01[23:16]),
-                        ((pins_sync & watch00[7:0]) == watch00[15:8]) && |(change & watch00[23:16])};
-    wire [1:0] event1 = {((pins_sync & watch11[7:0]) == watch11[15:8]) && |(change & watch11[23:16]),
-                        ((pins_sync & watch10[7:0]) == watch10[15:8]) && |(change & watch10[23:16])};
+    wire [7:0] change = observed_pins ^ pins_previous;
+    wire [1:0] event0 = {((observed_pins & watch01[7:0]) == watch01[15:8]) && |(change & watch01[23:16]),
+                        ((observed_pins & watch00[7:0]) == watch00[15:8]) && |(change & watch00[23:16])};
+    wire [1:0] event1 = {((observed_pins & watch11[7:0]) == watch11[15:8]) && |(change & watch11[23:16]),
+                        ((observed_pins & watch10[7:0]) == watch10[15:8]) && |(change & watch10[23:16])};
     wire [1:0] running;
     wire [15:0] errors0, errors1;
     wire [7:0] out0, out1, oe0, oe1, mark0, mark1;
@@ -106,7 +112,7 @@ module tt_um_mcranny_protocol_emulator_v2 (
             end
             11: begin
                 if (addr != 0 || payload != 0) begin reject=1; fatal=1; end
-                result = 24'h20001f; // 32 capture records and feature flags 0..4
+                result = 24'h20003f; // 32 capture records and feature flags 0..5
             end
             8'h13: begin
                 if (addr[6:0] != 0 || payload != 0) begin reject=1; fatal=1; end
@@ -130,6 +136,12 @@ module tt_um_mcranny_protocol_emulator_v2 (
             8'h24: begin
                 if (addr[6:0] != 0 || payload[23:2] != 0) begin reject=1; fatal=1; end
                 if (selected_running) reject=1;
+            end
+            8'h25,8'h26: begin
+                if (addr != 0 || payload[23:8] != 0 || (cmd == 8'h26 && payload != 0))
+                    begin reject=1; fatal=1; end
+                if (cmd == 8'h25 && |running) reject=1;
+                result = {16'b0,cmd == 8'h25 ? payload[7:0] : filter_mask};
             end
             8'h30: begin
                 if (addr != 0 || |(payload & 24'hff00fc)) begin reject=1; fatal=1; end
@@ -172,12 +184,14 @@ module tt_um_mcranny_protocol_emulator_v2 (
             owner0<=0; owner1<=0; od0<=0; od1<=0; abort0<=0; abort1<=0;
             watch00<=0; watch01<=0; watch10<=0; watch11<=0;
             pending_rx<=0; pending_engine<=0; host_errors<=0;
+            filter_mask<=0;
         end else if (!ena) pending_rx<=0;
         else begin
             if (shared_fault) host_errors <= host_errors | 16'h0100;
             if (frame_error) pending_rx <= 0;
             else if (cmd_valid) pending_rx <= accepted && cmd == 8'h13;
             if (accepted) begin
+                if (cmd == 8'h25) filter_mask<=payload[7:0];
                 if (cmd == 8'h13) pending_engine <= select_engine;
                 if (cmd == 5) host_errors <= 0;
                 if (cmd == 8'h21) begin
@@ -197,7 +211,7 @@ module tt_um_mcranny_protocol_emulator_v2 (
         end
     end
     protocol_engine_v2 e0 (
-        .clk(clk), .rst_n(reset_n), .ena(ena), .pins_in(pins_sync), .owner(owner0), .open_drain(od0),
+        .clk(clk), .rst_n(reset_n), .ena(ena), .pins_in(observed_pins), .owner(owner0), .open_drain(od0),
         .event_set({6'b0,event0}), .abort_mask(abort0), .start(start0),
         .stop(accepted && cmd == 4 && !select_engine), .state_reset(accepted && cmd == 5 && !select_engine),
         .external_fault(shared_fault), .program_write(accepted && cmd == 1 && !select_engine),
@@ -209,7 +223,7 @@ module tt_um_mcranny_protocol_emulator_v2 (
         .marker(mark0), .running(running[0]), .errors(errors0)
     );
     protocol_engine_v2 e1 (
-        .clk(clk), .rst_n(reset_n), .ena(ena), .pins_in(pins_sync), .owner(owner1), .open_drain(od1),
+        .clk(clk), .rst_n(reset_n), .ena(ena), .pins_in(observed_pins), .owner(owner1), .open_drain(od1),
         .event_set({6'b0,event1}), .abort_mask(abort1), .start(start1),
         .stop(accepted && cmd == 4 && select_engine), .state_reset(accepted && cmd == 5 && select_engine),
         .external_fault(shared_fault), .program_write(accepted && cmd == 1 && select_engine),
@@ -235,4 +249,54 @@ module tt_um_mcranny_protocol_emulator_v2 (
         .truncated(capture_truncated), .reason(capture_reason)
     );
     wire _unused = &{ui_in[7:3],1'b0};
+`ifdef FORMAL_INTEGRATION
+    // Compositional proof: engine output masking is proved in v2_engine.ys.
+    // Host transactions are otherwise arbitrary, including malformed commands.
+    // Capture/engine state is abstracted; these assumptions state only the
+    // separately proved output contract and the reset behavior of the host.
+    reg formal_past_valid;
+    initial formal_past_valid = 0;
+    always @* begin
+        assume((oe0 & ~owner0) == 0 && (oe1 & ~owner1) == 0);
+        assume((oe0 & out0 & od0) == 0 && (oe1 & out1 & od1) == 0);
+        if (!reset_n) assume(!cmd_valid && !frame_error);
+        assert((uio_oe & uio_out & (od0 | od1)) == 0);
+        if (!rst_n || !ena) assert(uio_oe == 0);
+    end
+    always @(posedge clk) begin
+        formal_past_valid <= 1;
+        if (!formal_past_valid) assume(!rst_n);
+        if (formal_past_valid && rst_n) begin
+            assert((owner0 & owner1) == 0);
+            assert((od0 & ~owner0) == 0 && (od1 & ~owner1) == 0);
+            assert((oe0 & oe1) == 0);
+            if (accepted && cmd == 8'h20) begin
+                assert((!payload[0] || start0) && (!payload[1] || start1));
+                assert(!(running & payload[1:0]));
+                assert((!payload[0] || start_ready0) && (!payload[1] || start_ready1));
+            end
+            if (cmd_valid && cmd == 8'h20 && reject) assert(!start0 && !start1);
+            if (accepted && tx_command)
+                assert({1'b0,txlevel} + {4'b0,tx_count} <= 16);
+            if (accepted && cmd == 1) assert(!selected_running);
+            if (cmd == 2 && selected_running) assert(reject);
+            if ($past(rst_n)) begin
+                if (!$past(ena && accepted && cmd == 8'h21))
+                    assert($stable({owner0,owner1,od0,od1}));
+                if ($past(ena && accepted && cmd == 8'h21 && !select_engine))
+                    assert($stable({owner1,od1}));
+                if ($past(ena && accepted && cmd == 8'h21 && select_engine))
+                    assert($stable({owner0,od0}));
+                if ($past(!ena || frame_error)) assert(!pending_rx);
+                if (!$past(ena && accepted && cmd == 8'h25)) assert($stable(filter_mask));
+            end
+        end
+    end
+    // FIFO readiness is a combinational part of the proved engine contract.
+    always @* begin
+        assume(txlevel0 <= 16 && txlevel1 <= 16);
+        assume(ready0 == (tx_count != 0 && {1'b0,txlevel0} + {4'b0,tx_count} <= 16));
+        assume(ready1 == (tx_count != 0 && {1'b0,txlevel1} + {4'b0,tx_count} <= 16));
+    end
+`endif
 endmodule
