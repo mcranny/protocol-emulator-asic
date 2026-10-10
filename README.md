@@ -75,3 +75,9 @@ at `b86a2a781484bcab7ba522dc5de540086695a430`, retaining its license.
 The V2 candidate adds two programmable engines and triggered capture.
 See the [architecture and host interface](docs/v2-architecture.md) and
 [capture behavior](docs/v2-capture.md). The released top remains V1.
+
+The [design evolution](docs/v2-design-evolution.md) follows the engineering
+changes from programmable capability through measured physical decisions.
+The [successful local acceptance record](evidence/v2-local-af573c5/README.md)
+links the complete successful-run evidence. Further verification continues on
+`v2-current`; the archived result does not automatically qualify later commits.

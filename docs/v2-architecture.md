@@ -51,8 +51,8 @@ not resume execution automatically.
 
 The integrated capture candidate stores 32 timestamped 64-bit records without
 controlling engine execution. Its trigger, sampling, completion and readout
-contract is in [v2-capture.md](v2-capture.md). Combined physical acceptance is
-still required; the earlier dual-engine route did not contain capture.
+contract is in [v2-capture.md](v2-capture.md). The successful combined-design evidence is recorded in
+[the local acceptance index](../evidence/v2-local-af573c5/README.md).
 
 Ownership masks must be disjoint and can only be changed with both engines
 stopped. Input observation is shared. An open-drain mask must be a subset of
@@ -219,9 +219,42 @@ a 500 us service interval. Its largest service occupies 492 us, including
 byte/frame continuity, not physical host scheduling. The API requires its
 caller to schedule service; it makes no real-time Linux guarantee.
 
-Full physical/precheck/gate-level acceptance and the public release evidence
-package remain required. Functional additions and their checks are described in
-the phase-specific PR validation record. The candidate top is not
+The archived source passed local physical/precheck/gate-level acceptance.
+Further tests and formal verification continue on the open development PR.
+Changed revisions require fresh evidence. Functional additions and their checks are described in
+[v2-validation.md](v2-validation.md). The candidate top is not
 selected by `info.yaml`, and existing V1 acceptance must not be presented as V2
 acceptance.
 
+## Reproducing physical feasibility
+
+Prepare a fresh isolated source directory with
+`python tools/v2_candidate.py --output build/v2-candidate-01`, then pass that
+directory to the pinned runner described in `docs/local-build.md` using
+`--source build/v2-candidate-01`. Preparation refuses to overwrite an existing
+directory and records input hashes, including firmware, verification and flow
+configuration. The runner preserves that manifest with the route evidence.
+The release `info.yaml` and physical configuration are not replaced.
+
+`physical/v2/overrides.json` configures 100 um clock-buffer
+spacing, automatic global-route repair wire length, 1000 um placement displacement
+limits, standard clock-wire spacing (`CTS_APPLY_NDR=none`), and 5% global-route
+capacity reservation (`GRT_ADJUSTMENT=0.05`). A 70% slew repair guard band and
+30% antenna ratio margin address extracted wire loading. Antenna repair allows
+six iterations and uses diode-only repair after detailed routing. Signal and
+clock routing both use Metal2 through Metal4; TopMetal1 remains excluded.
+The placement and global-route hold margins are 0.05 ns. These settings retain
+the successful RX-sharing candidate's routing contract and replace the older
+Metal1/jumper-only experiment. Any fanout added by antenna diodes must be
+repaired and rechecked with fresh extracted timing; it is not waived.
+These are implementation settings; the 6x4 footprint, 40 ns clock, 1.5 ns
+transition limit and all existing acceptance checks remain in force. The
+settings do not establish physical closure. Route-only success must still be
+followed by full physical, precheck and routed-netlist acceptance.
+
+The independent pin suite can run on a functional routed netlist using
+`make -C test -f Makefile.v2pins GATES=yes PDK_ROOT=/absolute/pdk/path
+GATE_LEVEL_NETLIST=/absolute/routed/netlist.v`. This requires the unpowered
+netlist and the pinned standard-cell models. Its results are separate from
+RTL (`results_v2_gl.xml`) and from extracted timing analysis; it does not
+replace all-corner timing or physical checks.

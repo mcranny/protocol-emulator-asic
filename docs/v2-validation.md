@@ -37,3 +37,10 @@ it. Missing results, skipped required suites, mixed source inventories and
 changed netlist/layout hashes fail the gate. Positive timing or zero routing
 violations alone do not establish acceptance. Each new revision needs its own
 qualification; historical evidence keeps its original source identity.
+
+## Successful baseline and continuing work
+
+The [local acceptance index](../evidence/v2-local-af573c5/README.md) preserves
+the successful run and exact source identity. Check that archive independently
+from functional validation of this branch. The current Draft PR remains open
+for additional behavioral tests, formal properties and coverage review.

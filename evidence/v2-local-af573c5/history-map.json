@@ -1,0 +1,338 @@
+[
+  {
+    "original_commit": "b6b534b2349d4ccd703af32f8558e4dc6f8c2d87",
+    "restructured_commit": "02824e08aa6ab90d766476fa6d775b7a122e8cd0",
+    "change": "Add executable V2 dual-engine architecture candidate",
+    "author_date": "2026-09-24T20:43:10-07:00",
+    "committer_date": "2026-09-24T20:43:10-07:00"
+  },
+  {
+    "original_commit": "19eb6554c660a31fa38da429486fc9ad968457f9",
+    "restructured_commit": "d1192c1a1e813b72c3d4dc1c27c69c5feb82f89d",
+    "change": "Add standalone triggered capture model and RTL candidate",
+    "author_date": "2026-09-24T21:09:21-07:00",
+    "committer_date": "2026-09-24T21:09:21-07:00"
+  },
+  {
+    "original_commit": "0c7c6b28ae44d7478498273b5d48eb23f6d20485",
+    "restructured_commit": "0c525e8e51d65a4fa248300f4d1c6741101856fd",
+    "change": "Account for instruction overhead in I2C clock timing",
+    "author_date": "2026-09-24T21:12:34-07:00",
+    "committer_date": "2026-09-24T21:12:34-07:00"
+  },
+  {
+    "original_commit": "08cb24314a317381085c9521f64970e73ef2c99d",
+    "restructured_commit": "8978ce6ae039f4705a9d82bc8b2f6a3fc98e796a",
+    "change": "Integrate triggered capture with V2 host readout",
+    "author_date": "2026-09-24T21:34:10-07:00",
+    "committer_date": "2026-09-24T21:34:10-07:00"
+  },
+  {
+    "original_commit": "52fd38958213cf2dcf343bb90fb3b452e738a167",
+    "restructured_commit": "ad53e20023cb8e6164714ab434164dbfe3d9053c",
+    "change": "Share stopped-engine readback with instruction fetch port",
+    "author_date": "2026-09-25T09:17:30-07:00",
+    "committer_date": "2026-09-25T09:17:30-07:00"
+  },
+  {
+    "original_commit": "b858f1a97c4773e83c98fcca9d2a140463bc514e",
+    "restructured_commit": "1a455e8ca6773d819c72f8edd938bc4d4c33b648",
+    "change": "Match SPI firmware clocks to requested transfer rates",
+    "author_date": "2026-09-25T09:24:09-07:00",
+    "committer_date": "2026-09-25T09:24:09-07:00"
+  },
+  {
+    "original_commit": null,
+    "restructured_commit": "6523313f7636ab848eda4f6a5c9612181568a2bd",
+    "change": "Document V2 interfaces and separate candidate CI",
+    "author_date": "2026-10-09T20:48:02-07:00",
+    "committer_date": "2026-10-09T20:48:02-07:00"
+  },
+  {
+    "original_commit": "b8d3ac9c3ef3c9eb338417a6909cf07169210ed8",
+    "restructured_commit": "dc52da93b09ba647ca9f8cadfe21d8a86fbbc923",
+    "change": "Compile bounded output schedules into V2 firmware",
+    "author_date": "2026-09-24T21:37:45-07:00",
+    "committer_date": "2026-09-24T21:37:45-07:00"
+  },
+  {
+    "original_commit": "13cc06ca726817373e724a6211e2c309cc4f068a",
+    "restructured_commit": "5bcb5476694e984b00a76feb5c4622f0718215c6",
+    "change": "Add reproducible UART fault scenarios and replay",
+    "author_date": "2026-09-25T09:10:46-07:00",
+    "committer_date": "2026-09-25T09:10:46-07:00"
+  },
+  {
+    "original_commit": "5e3880666f63206aa8a102fbafc03a6f3a048f13",
+    "restructured_commit": "3bf792eea320cd8950b357295fd90d5561cda6f7",
+    "change": "Replay SPI and I2C faults through independent protocol observers",
+    "author_date": "2026-09-25T19:45:33-07:00",
+    "committer_date": "2026-09-25T19:45:33-07:00"
+  },
+  {
+    "original_commit": "75ea329da6708f959b6ad4bae47c3c0ecea64d16",
+    "restructured_commit": "dcfe084259207c9ecb76ceff5196b9bb5ba3dc77",
+    "change": "Prove V2 integration safety and detect ownership overlap",
+    "author_date": "2026-09-25T19:47:37-07:00",
+    "committer_date": "2026-09-25T19:47:37-07:00"
+  },
+  {
+    "original_commit": "dbea22bcf6eb074105a61998a3c1edad3a0b2aa2",
+    "restructured_commit": "1b1ab21d872c68084e9ab9aa57067bad118882ab",
+    "change": "Exercise protocol fault recovery and add I2C bus clear",
+    "author_date": "2026-09-25T19:47:37-07:00",
+    "committer_date": "2026-09-25T19:47:37-07:00"
+  },
+  {
+    "original_commit": "58ee460a42120306ede576fe41e39ce913db2170",
+    "restructured_commit": "d33fc20407cd59380fe57d39aebd7f318611db64",
+    "change": "Filter synchronized input spikes without hiding capture events",
+    "author_date": "2026-09-25T21:23:57-07:00",
+    "committer_date": "2026-09-25T21:23:57-07:00"
+  },
+  {
+    "original_commit": "8ec5c22b86b5d0f39b049428a7d7e304f2bbca0f",
+    "restructured_commit": "f10f28a2b558065c22f09960d67ed9a2d5cec637",
+    "change": "Demonstrate a custom pulse protocol using ordinary V2 firmware",
+    "author_date": "2026-09-25T21:25:37-07:00",
+    "committer_date": "2026-09-25T21:25:37-07:00"
+  },
+  {
+    "original_commit": "a493581713a3b60b349798acfe1a62c6e9a5481e",
+    "restructured_commit": "d24a5b4cbf04bd05190459a455aa075a7aab0eb2",
+    "change": "Establish I2C target data before releasing a stretched clock",
+    "author_date": "2026-09-26T00:41:36-07:00",
+    "committer_date": "2026-09-26T00:41:36-07:00"
+  },
+  {
+    "original_commit": "2e2ddbc642a6cadf20d40c99bc10bec382496fdf",
+    "restructured_commit": "de3a166acf4e958e8ddc4ff3020a84f06e8c69af",
+    "change": "Check I2C controller data and START/STOP timing at pins",
+    "author_date": "2026-09-26T01:28:05-07:00",
+    "committer_date": "2026-09-26T01:28:05-07:00"
+  },
+  {
+    "original_commit": null,
+    "restructured_commit": "117b87e42bec00dfd550c44ba57ee4f1c7607531",
+    "change": "Document observed protocol behavior and verification limits",
+    "author_date": "2026-10-09T20:49:54-07:00",
+    "committer_date": "2026-10-09T20:49:54-07:00"
+  },
+  {
+    "original_commit": "5485dd1d62a5ae4379d7c364bb6829db6446741c",
+    "restructured_commit": "4f24bed1b9c980f605d7cfacd1e9f6f456cb480c",
+    "change": "Record V2 capture evidence and physical gate findings",
+    "author_date": "2026-09-25T14:22:46-07:00",
+    "committer_date": "2026-09-25T14:22:46-07:00"
+  },
+  {
+    "original_commit": "29409430b7fe561b1c5b98c33f2f50ae4d69e092",
+    "restructured_commit": "c189bb4f6d4c35316fd38db67af009e49cf70b37",
+    "change": "Share V2 storage read decoders to reduce mapped area",
+    "author_date": "2026-09-25T16:29:25-07:00",
+    "committer_date": "2026-09-25T16:29:25-07:00"
+  },
+  {
+    "original_commit": "acfbf7e362a2650e95b9467fccde16b0f86b5f75",
+    "restructured_commit": "1c2d9a7eabccfbb5c238a08d600e07fd896fb8f2",
+    "change": "Allow physical repair to legalize the combined V2 design",
+    "author_date": "2026-09-25T16:31:19-07:00",
+    "committer_date": "2026-09-25T16:31:19-07:00"
+  },
+  {
+    "original_commit": "89d10ac81174556e041f1311fef20f00cc933b1b",
+    "restructured_commit": "4362d68664c376d3d70fbf303d0d18787081b3e2",
+    "change": "Preserve complete GDS geometry in vector exports",
+    "author_date": "2026-09-25T19:46:30-07:00",
+    "committer_date": "2026-09-25T19:46:30-07:00"
+  },
+  {
+    "original_commit": "60979f86d29c4876942a3cbb020667c6605c9edd",
+    "restructured_commit": "05880bf5803adbd5953c561801e209586e69db40",
+    "change": "Require complete source-matched evidence for V2 acceptance",
+    "author_date": "2026-09-26T00:42:08-07:00",
+    "committer_date": "2026-09-26T00:42:08-07:00"
+  },
+  {
+    "original_commit": "bd3f1eecd0622e64213f684c42ef8e3ef58ed41b",
+    "restructured_commit": "2eed514e417fd6912a266faed4861dad0d387b1c",
+    "change": "Use standard clock spacing to reduce routing pressure",
+    "author_date": "2026-09-26T00:44:24-07:00",
+    "committer_date": "2026-09-26T00:44:24-07:00"
+  },
+  {
+    "original_commit": "bb0b084059e4136077d4fae5d7098a03bb8e6739",
+    "restructured_commit": "65308ead5d95aa9ff309d76baf726e2d859d7e89",
+    "change": "Record immutable local validation and downstream evidence",
+    "author_date": "2026-09-26T01:28:05-07:00",
+    "committer_date": "2026-09-26T01:28:05-07:00"
+  },
+  {
+    "original_commit": "80048a20eebb377d65d35ed187aeb9efbd4bf9ea",
+    "restructured_commit": "30298409a547ff1aef0c29db3d92977b8c5b62cf",
+    "change": "Reduce V2 routing congestion using measured track capacity",
+    "author_date": "2026-09-26T09:07:44-07:00",
+    "committer_date": "2026-09-26T09:07:44-07:00"
+  },
+  {
+    "original_commit": "9c15b074b069f1a173f4d9f01fcf70074beec351",
+    "restructured_commit": "b335e3b34a4f78c630f1a3a982e9a2dfa3a4ea48",
+    "change": "Run every gate-level pin suite against one Icarus build",
+    "author_date": "2026-09-26T19:49:29-07:00",
+    "committer_date": "2026-09-26T19:49:29-07:00"
+  },
+  {
+    "original_commit": "fbb4e7d5dc3a32c46c2a2f6cb9af5c3d1c86b4ab",
+    "restructured_commit": "c8b2932ec5023bf2df757d155d3369cf6769684d",
+    "change": "Repair electrical loads before final antenna routing",
+    "author_date": "2026-09-26T19:55:19-07:00",
+    "committer_date": "2026-09-26T19:55:19-07:00"
+  },
+  {
+    "original_commit": "594e07a11e04005c21e885a89a874ad05108b0e9",
+    "restructured_commit": "3511d6f1314c3741f64823304045ec698c92b451",
+    "change": "Render GDS viewports without loading full geometry in the browser",
+    "author_date": "2026-09-27T15:41:40-07:00",
+    "committer_date": "2026-09-27T15:41:40-07:00"
+  },
+  {
+    "original_commit": "44c102f846eb08dfecf136a96ba2c71128586a16",
+    "restructured_commit": "cbedfe93c82d5b4c2a7b1bc1e0f12aa2a2092faf",
+    "change": "Make layout overviews readable while preserving literal geometry",
+    "author_date": "2026-09-27T20:30:31-07:00",
+    "committer_date": "2026-09-27T20:30:31-07:00"
+  },
+  {
+    "original_commit": "a423e6eb224b65b855025afad3568020d921a9ec",
+    "restructured_commit": "a1fc97c06691bb9ad42f5abdc16c06c315f6564e",
+    "change": "Require fresh all-corner timing for the saved V2 candidate",
+    "author_date": "2026-10-05T08:52:17-07:00",
+    "committer_date": "2026-10-05T08:52:17-07:00"
+  },
+  {
+    "original_commit": "a71148c5896adbbf999b96d20231829bb9e8385a",
+    "restructured_commit": "cdb7f331131ed60c274bc77ccc28f6a65dae476f",
+    "change": "Gate and retain controlled Metal2-Metal4 routing trials",
+    "author_date": "2026-10-05T09:06:31-07:00",
+    "committer_date": "2026-10-05T09:06:31-07:00"
+  },
+  {
+    "original_commit": "ee8023e0c06972da5f80122e59fbcf9119fdfce0",
+    "restructured_commit": "544fa164a27572500b13a9d34f3f488914bafde5",
+    "change": "Observe flushed routing progress without restarting the router",
+    "author_date": "2026-10-05T16:59:36-07:00",
+    "committer_date": "2026-10-05T16:59:36-07:00"
+  },
+  {
+    "original_commit": "a20fa7efd563bd2b9a77d4eda15b9a755c062bc9",
+    "restructured_commit": "66b12c52b5fdfee493110f0008a0b03e4b405aba",
+    "change": "Run TT precheck with a verified offline runtime",
+    "author_date": "2026-10-05T17:02:16-07:00",
+    "committer_date": "2026-10-05T17:02:16-07:00"
+  },
+  {
+    "original_commit": "f133f5ed250b50b6b6976e1ca5804c45005f8d13",
+    "restructured_commit": "ffe009b72c2dff687784216bbe7b0b9df5c138ac",
+    "change": "Bound routing retries and record effective search settings",
+    "author_date": "2026-10-05T22:53:13-07:00",
+    "committer_date": "2026-10-05T22:53:13-07:00"
+  },
+  {
+    "original_commit": "ddb9a4215e778c8503fa21bf7a25795f565144f5",
+    "restructured_commit": "3dd5139fd52dddc005d66dbb9cb79daca9061cb3",
+    "change": "Resume bounded DRC repair from a validated routing snapshot",
+    "author_date": "2026-10-06T10:25:05-07:00",
+    "committer_date": "2026-10-06T10:25:05-07:00"
+  },
+  {
+    "original_commit": "3e71f3bdacbe0f2f8da1469af661351e7226c817",
+    "restructured_commit": "615689df489f50e0b14b78c92f189e2329988c72",
+    "change": "Display routing progress with explicit stale-evidence states",
+    "author_date": "2026-10-06T10:25:05-07:00",
+    "committer_date": "2026-10-06T10:25:05-07:00"
+  },
+  {
+    "original_commit": null,
+    "restructured_commit": "3ad6ce34f1f1991ee33c95b31f881c699d876f1c",
+    "change": "Check physical candidate constraints and input identities",
+    "author_date": "2026-10-09T20:50:48-07:00",
+    "committer_date": "2026-10-09T20:50:48-07:00"
+  },
+  {
+    "original_commit": null,
+    "restructured_commit": "fc626ecb0ee42d9e9e6eb907dc05ad50860385e8",
+    "change": "Explain measured design tradeoffs and reproducible validation",
+    "author_date": "2026-10-09T20:50:48-07:00",
+    "committer_date": "2026-10-09T20:50:48-07:00"
+  },
+  {
+    "original_commit": null,
+    "restructured_commit": "e6833c49a711886059887de98913deb495560310",
+    "change": "Keep candidate signal and clock routes on Metal2-Metal4",
+    "author_date": "2026-10-09T20:51:12-07:00",
+    "committer_date": "2026-10-09T20:51:12-07:00"
+  },
+  {
+    "original_commit": "2a5cb4c8f8500c31beda85c66b7ef6c8a303b0a4",
+    "restructured_commit": "3ee80969ee5278777cc0c0d72668284ea4587d5a",
+    "change": "Share each RX FIFO read tree without reducing storage",
+    "author_date": "2026-10-06T15:26:29-07:00",
+    "committer_date": "2026-10-06T15:26:29-07:00"
+  },
+  {
+    "original_commit": "2a5cb4c8f8500c31beda85c66b7ef6c8a303b0a4",
+    "restructured_commit": "8022b2f576a6e2b20624f7f9fc6c4d61367b3aac",
+    "change": "Route the RX-sharing candidate from fresh synthesis",
+    "author_date": "2026-10-06T15:26:49-07:00",
+    "committer_date": "2026-10-06T15:26:49-07:00"
+  },
+  {
+    "original_commit": "2a5cb4c8f8500c31beda85c66b7ef6c8a303b0a4",
+    "restructured_commit": "254ba3005e703200922cd306a92b4297168d58ee",
+    "change": "Repair antenna violations with connected diodes",
+    "author_date": "2026-10-07T05:14:04-07:00",
+    "committer_date": "2026-10-07T05:14:04-07:00"
+  },
+  {
+    "original_commit": "2a5cb4c8f8500c31beda85c66b7ef6c8a303b0a4",
+    "restructured_commit": "03bb300e6f5d3e3152bdcfcb394bb07a5286ee93",
+    "change": "Repair measured fanout and repeat physical checks",
+    "author_date": "2026-10-07T11:13:40-07:00",
+    "committer_date": "2026-10-07T11:13:40-07:00"
+  },
+  {
+    "original_commit": "2a5cb4c8f8500c31beda85c66b7ef6c8a303b0a4",
+    "restructured_commit": "0c299572894987a48a2ea71986c7f2ee8593ce98",
+    "change": "Retain the successful candidate routing configuration",
+    "author_date": "2026-10-07T11:19:12-07:00",
+    "committer_date": "2026-10-07T11:19:12-07:00"
+  },
+  {
+    "original_commit": "2a5cb4c8f8500c31beda85c66b7ef6c8a303b0a4",
+    "restructured_commit": "4fd35c1106b1ad1ddea3daba2f2d64f60729a181",
+    "change": "Show antenna and fanout stages in routing progress",
+    "author_date": "2026-10-07T11:19:12-07:00",
+    "committer_date": "2026-10-07T11:19:12-07:00"
+  },
+  {
+    "original_commit": "af573c5fef6f96b4c2fbd400e6565b3b41f54aef",
+    "restructured_commit": "294a0e283fe0e403714ce2076ad9471efb4f2020",
+    "change": "Stabilize capture-disable sampling in pin simulation",
+    "author_date": "2026-10-07T18:52:29-07:00",
+    "committer_date": "2026-10-07T18:52:29-07:00"
+  },
+  {
+    "original_commit": "af573c5fef6f96b4c2fbd400e6565b3b41f54aef",
+    "restructured_commit": "ba5045668d3ac65fa4e1d636955aa51d9468bc41",
+    "change": "Require every gate-level suite to execute",
+    "author_date": "2026-10-07T18:52:29-07:00",
+    "committer_date": "2026-10-07T18:52:29-07:00"
+  },
+  {
+    "original_commit": "af573c5fef6f96b4c2fbd400e6565b3b41f54aef",
+    "restructured_commit": "af1f04939234448399f1a644963281f77af7ee1c",
+    "change": "Audit final mapped cells and bind continuation evidence",
+    "author_date": "2026-10-07T18:52:29-07:00",
+    "committer_date": "2026-10-07T18:52:29-07:00"
+  }
+]
