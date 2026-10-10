@@ -1,0 +1,24 @@
+SIM ?= icarus
+TOPLEVEL_LANG = verilog
+TOPLEVEL = tt_um_mcranny_protocol_emulator_v2
+COCOTB_TEST_MODULES = test_v2_pins
+ifeq ($(GATES),yes)
+ifndef PDK_ROOT
+$(error PDK_ROOT is required for V2 gate-level simulation)
+endif
+ifndef GATE_LEVEL_NETLIST
+$(error GATE_LEVEL_NETLIST is required for V2 gate-level simulation)
+endif
+COMPILE_ARGS += -DFUNCTIONAL -DSIM
+VERILOG_SOURCES = $(PDK_ROOT)/ihp-sg13cmos5l/libs.ref/sg13cmos5l_stdcell/verilog/sg13cmos5l_udp.v
+VERILOG_SOURCES += $(PDK_ROOT)/ihp-sg13cmos5l/libs.ref/sg13cmos5l_stdcell/verilog/sg13cmos5l_stdcell.v
+VERILOG_SOURCES += $(GATE_LEVEL_NETLIST)
+SIM_BUILD = sim_build/v2gl
+COCOTB_RESULTS_FILE = results_v2_gl.xml
+else
+VERILOG_SOURCES = $(CURDIR)/../src/host_spi.v $(CURDIR)/../src/v2_engine.v $(CURDIR)/../src/v2_capture.v $(CURDIR)/../src/v2_project.v
+SIM_BUILD = sim_build/v2pins
+COCOTB_RESULTS_FILE = results_v2_pins.xml
+endif
+export PYTHONPATH := $(CURDIR)/../host:$(PYTHONPATH)
+include $(shell cocotb-config --makefiles)/Makefile.sim

@@ -69,3 +69,9 @@ post-V1 work.
 Apache License 2.0. The project foundation derives from the
 [Tiny Tapeout CMOS5L Verilog template](https://github.com/TinyTapeout/ttihp-verilog-template/tree/cmos5l)
 at `b86a2a781484bcab7ba522dc5de540086695a430`, retaining its license.
+
+## V2 development
+
+The V2 candidate adds two programmable engines and triggered capture.
+See the [architecture and host interface](docs/v2-architecture.md) and
+[capture behavior](docs/v2-capture.md). The released top remains V1.
