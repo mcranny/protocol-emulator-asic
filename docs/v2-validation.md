@@ -1,17 +1,39 @@
-# V2 behavioral validation
+# V2 validation
 
-Run `make test`, `make v2-test`, `make v2-capture-test` and
-`python tools/v2_mutations.py` with the dependencies in `test/requirements.txt`,
-Icarus Verilog, Verilator and Yosys. V1 and V2 CI jobs are independent.
+The [architecture and host interface](v2-architecture.md),
+[capture](v2-capture.md), [replay](v2-replay.md), and
+[scenarios](v2-scenarios.md) describe implemented behavior.
+The [design evolution](v2-design-evolution.md) explains the measured decisions.
 
-Core and capture differential tests compare state against the software models.
-Pin suites use independent protocol peers, bounded replay and fault/recovery
-scenarios. Formal induction checks engine, capture, integration and filter
-safety under the assumptions described in the
-[architecture and host interface](v2-architecture.md). Mutation checks require
-actual detection of the selected defects, not compilation failures.
+## Functional checks
 
-These checks establish their exercised behavior and stated proof properties.
-They do not establish physical closure, complete firmware protocol correctness,
-or operation on a physical board. PR validation records identify the source
-revision and actual commands and suite counts for each run.
+Install `test/requirements.txt` in a Python virtual environment and provide
+Icarus Verilog, Verilator and Yosys. Run `make test`, `make v2-test`,
+`make v2-capture-test` and `python tools/v2_mutations.py`.
+V1 and V2 have independent CI jobs. The V2 job also runs shared tooling tests.
+
+For a complete immutable functional record from a clean checkout:
+
+```sh
+python tools/validate_local.py --require-clean --output build/validation-new
+```
+
+The runner checks collected Python test identities, both top-level designs,
+core/pin/capture simulation, the five existing formal proofs and six mutations.
+Outputs are local evidence, not tracked source.
+
+## Physical and acceptance checks
+
+`tools/v2_candidate.py` prepares a new candidate with pinned constraints.
+`tools/v2_closure.py` requires fresh all-corner reports and connectivity checks;
+`tools/v2_route_trial.py` and `tools/v2_route_resume.py` retain controlled routing
+attempts. Use each command's `--help` for required inputs. Reusing a checkpoint
+requires matching source, configuration and input hashes.
+
+Acceptance requires functional, physical, precheck, gate-level and full-geometry
+render evidence from the same clean source identity. `tools/v2_evidence.py`
+records and assembles stage evidence; `python tools/check_v2.py BUNDLE` verifies
+it. Missing results, skipped required suites, mixed source inventories and
+changed netlist/layout hashes fail the gate. Positive timing or zero routing
+violations alone do not establish acceptance. Each new revision needs its own
+qualification; historical evidence keeps its original source identity.

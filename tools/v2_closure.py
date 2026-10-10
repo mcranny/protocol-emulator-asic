@@ -1,6 +1,6 @@
 """Prepare and run fresh all-corner timing for the saved V2 hold005 candidate.
 
-This implements the preparation and timing gates in docs/v2-closure-next-steps.md.
+Prepare a provenance-checked candidate and require fresh all-corner timing.
 It never launches detailed routing or establishes release acceptance. Predecessor
 artifacts are mounted read-only, and every output directory must be new.
 """
