@@ -41,7 +41,20 @@ module protocol_capture_v2 #(
         (fire || sample != previous || clear_trigger || |sampled_flags[1:0]);
     wire sampling = arm || (armed && !stop && !disable_capture);
     wire [5:0] next_count = arm ? 6'd1 : count + 1'b1;
-    assign read_data = {1'b0,read_address} < count ? records[read_address] : 64'b0;
+    // Decode once for all record bits, keeping the full timestamp and sample.
+    wire [DEPTH-1:0] read_select;
+    genvar read_index;
+    generate for (read_index = 0; read_index < DEPTH; read_index = read_index + 1) begin: record_decoder
+        assign read_select[read_index] = read_address == read_index && {1'b0,read_address} < count;
+    end endgenerate
+    reg [63:0] selected_record;
+    integer read_word;
+    always @* begin
+        selected_record = 0;
+        for (read_word = 0; read_word < DEPTH; read_word = read_word + 1)
+            selected_record = selected_record | (records[read_word] & {64{read_select[read_word]}});
+    end
+    assign read_data = selected_record;
 
     always @(posedge clk) begin
         if (rst_n && sampling && take)

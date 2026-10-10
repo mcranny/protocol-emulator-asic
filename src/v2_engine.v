@@ -41,7 +41,20 @@ module protocol_engine_v2 (
     // Execution and stopped-engine host readback share one memory read port.
     // The integration top rejects host reads of a running engine nonfatally.
     wire [5:0] memory_read_address = running ? pc : program_addr;
-    wire [23:0] memory_read_data = program_mem[memory_read_address];
+    // Share the address decoder across all 24 bits. An indexed read maps to
+    // a separate mux tree per bit in the standard-cell-only implementation.
+    wire [63:0] memory_read_select;
+    genvar read_index;
+    generate for (read_index = 0; read_index < 64; read_index = read_index + 1) begin: program_decoder
+        assign memory_read_select[read_index] = memory_read_address == read_index;
+    end endgenerate
+    reg [23:0] memory_read_data;
+    integer read_word;
+    always @* begin
+        memory_read_data = 0;
+        for (read_word = 0; read_word < 64; read_word = read_word + 1)
+            memory_read_data = memory_read_data | (program_mem[read_word] & {24{memory_read_select[read_word]}});
+    end
 `ifdef FORMAL
     // Overapproximate every fetched instruction independently. FIFO/drive
     // safety must hold even for arbitrary instruction sequences; program

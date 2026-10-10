@@ -3,6 +3,7 @@
 Mutants and reports are written under build/, never into the source tree.
 Compilation errors and missing/empty result files do not count as detections.
 """
+import argparse
 import json
 import os
 import re
@@ -27,13 +28,14 @@ CASES = [
 ]
 
 
-def main():
+def main(output=None):
+    output = Path(output or ROOT / "build/v2-mutations").resolve()
     results = []
     for name, filename, before, after, makefile, case in CASES:
         source = (ROOT / "src" / filename).read_text()
         if source.count(before) != 1:
             raise ValueError(f"mutation anchor is not unique: {name}")
-        directory = ROOT / "build/v2-mutations" / name
+        directory = output / name
         directory.mkdir(parents=True, exist_ok=True)
         mutant = directory / filename
         mutant.write_text(source.replace(before, after, 1))
@@ -60,11 +62,11 @@ def main():
                                              else "v2-divergence.json")
         if divergence.exists() and makefile in ("Makefile.v2", "Makefile.v2capture"):
             shutil.copy2(divergence, directory / "divergence.json")
-    destination = ROOT / "build/v2-mutations/results.json"
+    destination = output / "results.json"
     # A counterexample must also expose a disabled ownership check in the
     # compositional integration proof; a parser/tool failure is not detection.
     name = "ownership_overlap"
-    directory = ROOT / "build/v2-mutations" / name
+    directory = output / name
     directory.mkdir(parents=True, exist_ok=True)
     source = (ROOT / "src/v2_project.v").read_text()
     anchor = "|(payload[7:0] & (select_engine ? owner0 : owner1))"
@@ -89,4 +91,6 @@ def main():
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--output", type=Path)
+    raise SystemExit(main(parser.parse_args().output))

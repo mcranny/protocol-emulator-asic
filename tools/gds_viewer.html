@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Full-detail layout viewer</title>
+<style>
+:root{color-scheme:dark;font:14px system-ui,sans-serif;background:#101827;color:#e5e7eb}*{box-sizing:border-box}[hidden]{display:none!important}
+body{margin:0;height:100dvh;display:flex;flex-direction:column}header{padding:18px 24px;border-bottom:1px solid #334155;display:flex;align-items:center;gap:20px}
+h1{font-size:18px;margin:0 0 5px;overflow-wrap:anywhere}p{margin:0;color:#94a3b8;font-size:12px}.badge{color:#86efac;font-size:11px;letter-spacing:.08em;text-transform:uppercase;white-space:nowrap}
+main{display:flex;flex:1;min-height:0}aside{width:285px;flex-shrink:0;padding:18px 16px;overflow:auto;border-right:1px solid #334155}
+h2{font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:#94a3b8;margin:18px 0 10px}h2:first-child{margin-top:0}
+button{background:#1e293b;border:1px solid #475569;border-radius:6px;color:#e2e8f0;padding:7px 10px;cursor:pointer}button:disabled{opacity:.35;cursor:default}select{background:#1e293b;color:#e2e8f0;border:1px solid #475569;border-radius:5px;padding:6px;width:100%;margin:10px 0}.grid-control{display:flex;gap:6px;font-size:12px;margin-bottom:12px}button:hover{background:#334155}button:focus-visible,a:focus-visible{outline:2px solid #60a5fa;outline-offset:3px}
+.buttons{display:flex;gap:6px;flex-wrap:wrap}.layer{display:flex;align-items:center;gap:8px;padding:6px 0;font-size:12px;cursor:pointer}.layer-row{display:flex;align-items:center;gap:5px}.layer-row .layer{flex:1;min-width:0}.layer-row .layer span:last-child{overflow-wrap:anywhere}.layer-row button{font-size:10px;padding:4px}.layer input{accent-color:#60a5fa}.swatch{width:9px;height:9px;border-radius:2px;flex-shrink:0}
+a{color:#93c5fd;display:block;font-size:12px;margin:8px 0}#viewport{position:relative;flex:1;min-width:0;overflow:hidden;touch-action:none}canvas{width:100%;height:100%;display:block;cursor:grab}canvas.dragging{cursor:grabbing}
+#message{position:absolute;left:20px;top:20px;max-width:560px;padding:16px;background:#172234;border:1px solid #475569;border-radius:8px;line-height:1.6}#message[hidden]{display:none}code{overflow-wrap:anywhere;color:#bfdbfe}footer{display:flex;justify-content:space-between;gap:16px;padding:10px 20px;border-top:1px solid #334155;font-size:12px;color:#94a3b8}#status{color:#cbd5e1}#scale{font-variant-numeric:tabular-nums}#hash{font:10px ui-monospace,monospace;overflow-wrap:anywhere;color:#64748b}
+@media(max-width:650px){header{padding:12px;display:block}.badge{display:none}aside{width:160px;padding:12px 10px}footer{padding:8px;font-size:10px}h1{font-size:15px}}
+</style></head>
+<body><header><div style="flex:1;min-width:0"><h1 id="title">Full-detail layout viewer</h1><p>Drag to pan · scroll or double-click to zoom · F to fit</p></div><span class="badge" id="view-mode">Automatic detail</span></header>
+<main><aside><h2>View</h2><div class="buttons"><button id="fit">Fit layout</button><button id="detail">Detail</button><button id="zoom-in" aria-label="Zoom in">+</button><button id="zoom-out" aria-label="Zoom out">−</button></div>
+<label for="mode">Rendering</label><select id="mode"><option value="auto">Auto · density / geometry</option><option value="density">Density overview</option><option value="geometry">Literal geometry</option></select><label class="grid-control"><input id="grid" type="checkbox"> Reference grid (faint)</label><p id="view-note">Zoom adapts to the dimensions of the original shapes.</p>
+<h2>Layers <span id="layer-count"></span></h2><div class="buttons"><button id="all">All</button><button id="none">None</button></div><div id="layers"></div>
+<h2>Original files</h2><a href="layout.gds" download id="gds-download" hidden>Download GDS</a><a href="layout.svg" download id="svg-download" hidden>Download complete vector SVG</a><a href="render-manifest.json" download id="manifest-download" hidden>Download geometry inventory</a>
+<p>Density summarizes area at overview scales. Geometry mode resolves the original shapes.</p><h2>Source SHA-256</h2><div id="hash">Connecting…</div></aside>
+<div id="viewport"><canvas id="canvas" aria-label="Interactive full-detail chip layout" tabindex="0"></canvas><div id="message" role="status">Connecting to the local layout service…</div></div></main>
+<footer><span id="status" aria-live="polite">Loading layout metadata…</span><span id="scale"></span></footer>
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const canvas = $('canvas'), ctx = canvas.getContext('2d', {alpha:false});
+let meta, box, frame=null, revision=0, busy=false, timer=null, drag=null, enabled=new Set();
+
+function dimensions() {
+  const r=canvas.getBoundingClientRect(), dpr=window.devicePixelRatio||1;
+  const w=Math.max(1,Math.round(r.width*dpr)), h=Math.max(1,Math.round(r.height*dpr));
+  const k=Math.min(1,meta.max_side/w,meta.max_side/h,Math.sqrt(meta.max_pixels/(w*h)));
+  return [Math.max(1,Math.floor(w*k)),Math.max(1,Math.floor(h*k))];
+}
+function zoomLimits() {
+  const b=meta.bounds, aspect=canvas.width/canvas.height;
+  const max=Math.max(b[2]-b[0],(b[3]-b[1])*aspect)*meta.fit_margin;
+  return {min:Math.min(max,meta.minimum_view_span_um*Math.max(1,aspect)),max};
+}
+function centred(cx,cy,width) {
+  const height=width*canvas.height/canvas.width;
+  return [cx-width/2,cy-height/2,cx+width/2,cy+height/2];
+}
+function constrain() {
+  const limits=zoomLimits(), b=meta.bounds;
+  const w=Math.max(limits.min,Math.min(limits.max,box[2]-box[0]));
+  box=centred((box[0]+box[2])/2,(box[1]+box[3])/2,w);
+  // Keep the view within the fitted design envelope; prevent panning into void.
+  for (const axis of [0,1]) {
+    const span=box[axis+2]-box[axis], extent=(b[axis+2]-b[axis])*meta.fit_margin;
+    const middle=(b[axis]+b[axis+2])/2;
+    const low=middle-Math.max(0,(extent-span)/2), high=middle+Math.max(0,(extent-span)/2);
+    const centre=Math.max(low,Math.min(high,(box[axis]+box[axis+2])/2));
+    box[axis]=centre-span/2; box[axis+2]=centre+span/2;
+  }
+  $('zoom-in').disabled=w<=limits.min*(1+1e-9);
+  $('zoom-out').disabled=w>=limits.max*(1-1e-9);
+  canvas.dataset.viewBox=JSON.stringify(box);
+}
+function resize() {
+  if(!meta)return;
+  const [w,h]=dimensions();
+  if(canvas.width===w&&canvas.height===h)return;
+  const old=box; canvas.width=w; canvas.height=h;
+  if(old)box=centred((old[0]+old[2])/2,(old[1]+old[3])/2,old[2]-old[0]);
+  else fit(false);
+  queue();
+}
+function fit(request=true) {
+  if(!meta)return;
+  const b=meta.bounds;
+  box=centred((b[0]+b[2])/2,(b[1]+b[3])/2,zoomLimits().max);
+  if(request)queue();
+}
+function referenceGrid() {
+  if(!$('grid').checked||!box)return;
+  const pixelUm=(box[2]-box[0])/canvas.getBoundingClientRect().width;
+  const target=Math.max(meta.minimum_feature_um,pixelUm*55);
+  const power=10**Math.floor(Math.log10(target));
+  const step=[1,2,5,10].find(n=>n*power>=target)*power;
+  const sx=canvas.width/(box[2]-box[0]),sy=canvas.height/(box[3]-box[1]);
+  // A coordinate reference only: actual PDK placement/track grids are not in GDS.
+  ctx.fillStyle='rgba(148,163,184,.18)';
+  const radius=Math.max(.65,canvas.width/canvas.getBoundingClientRect().width*.65);
+  ctx.beginPath();
+  for(let x=Math.ceil(box[0]/step)*step;x<=box[2];x+=step)
+    for(let y=Math.ceil(box[1]/step)*step;y<=box[3];y+=step) {
+      const px=(x-box[0])*sx,py=(box[3]-y)*sy;
+      ctx.moveTo(px+radius,py);ctx.arc(px,py,radius,0,2*Math.PI);
+    }
+  ctx.fill();
+}
+function draw() {
+  ctx.fillStyle='#101827';ctx.fillRect(0,0,canvas.width,canvas.height);
+  if(frame&&box) {
+    const b=frame.box,sx=canvas.width/(box[2]-box[0]),sy=canvas.height/(box[3]-box[1]);
+    ctx.imageSmoothingEnabled=false;
+    ctx.drawImage(frame.bitmap,(b[0]-box[0])*sx,(box[3]-b[3])*sy,(b[2]-b[0])*sx,(b[3]-b[1])*sy);
+  }
+  referenceGrid();
+  if(box)$('scale').textContent=`${(box[2]-box[0]).toPrecision(5)} µm across · ${((box[2]-box[0])/canvas.width).toPrecision(3)} µm / pixel`;
+}
+function queue() {
+  constrain();revision++;clearTimeout(timer);draw();
+  $('status').textContent='Refreshing view…';timer=setTimeout(render,120);
+}
+async function render() {
+  if(busy||!meta)return;
+  busy=true;
+  const requested=revision,target=[...box];
+  const params=new URLSearchParams({box:target.join(','),width:canvas.width,height:canvas.height,
+    layers:[...enabled].join(','),mode:$('mode').value,pixel_ratio:canvas.width/canvas.getBoundingClientRect().width});
+  try {
+    const response=await fetch('/api/render?'+params,{cache:'no-store'});
+    if(!response.ok)throw Error((await response.json()).error||'Render failed');
+    const mode=response.headers.get('X-View-Mode');
+    const bitmap=await createImageBitmap(await response.blob());
+    if(requested!==revision){bitmap.close();return;}
+    if(frame)frame.bitmap.close();
+    frame={bitmap,box:target,mode};draw();$('message').hidden=true;
+    const label=mode==='density'?'Density overview':'Literal geometry';
+    $('view-mode').textContent=label;
+    $('view-note').textContent=mode==='density'
+      ? 'Area density per layer, aggregated into up to 200 × 200 buckets. Overlaps contribute repeatedly. Zoom in for geometry; this is not a congestion or DRC measurement.'
+      : 'Original shapes at full hierarchy depth. Translucent fills and thin outlines; no bright stipple dots. Isolate a layer to inspect overlaps.';
+    $('status').textContent=`Ready · ${enabled.size} / ${meta.layers.length} layers · ${label.toLowerCase()}`;
+  } catch(error) {
+    $('message').hidden=false;
+    $('message').textContent='Unable to refresh this view: '+error.message+'. Check the local service and use Fit layout to retry.';
+    $('status').textContent='View not current';
+  } finally {
+    busy=false;if(requested!==revision){clearTimeout(timer);timer=setTimeout(render,0);}
+  }
+}
+function zoom(factor,fx=.5,fy=.5) {
+  if(!meta)return;
+  const oldW=box[2]-box[0],oldH=box[3]-box[1],limits=zoomLimits();
+  const newW=Math.max(limits.min,Math.min(limits.max,oldW*factor)),newH=newW*canvas.height/canvas.width;
+  if(Math.abs(newW-oldW)<=oldW*1e-12)return;
+  const x=box[0]+oldW*fx,y=box[3]-oldH*fy;
+  box=[x-newW*fx,y-newH*(1-fy),x+newW*(1-fx),y+newH*fy];queue();
+}
+canvas.addEventListener('wheel',e=>{
+  if(!meta)return;e.preventDefault();const r=canvas.getBoundingClientRect();
+  zoom(Math.exp(Math.max(-.6,Math.min(.6,e.deltaY*.002))),(e.clientX-r.left)/r.width,(e.clientY-r.top)/r.height);
+},{passive:false});
+canvas.ondblclick=e=>{const r=canvas.getBoundingClientRect();zoom(.5,(e.clientX-r.left)/r.width,(e.clientY-r.top)/r.height);};
+canvas.onpointerdown=e=>{if(!meta)return;drag={x:e.clientX,y:e.clientY,box:[...box]};canvas.setPointerCapture(e.pointerId);canvas.classList.add('dragging');};
+canvas.onpointermove=e=>{
+  if(!drag)return;
+  const r=canvas.getBoundingClientRect(),b=drag.box,dx=(e.clientX-drag.x)*(b[2]-b[0])/r.width,dy=(e.clientY-drag.y)*(b[3]-b[1])/r.height;
+  box=[b[0]-dx,b[1]+dy,b[2]-dx,b[3]+dy];queue();
+};
+canvas.onpointerup=canvas.onpointercancel=()=>{drag=null;canvas.classList.remove('dragging');};
+$('fit').onclick=()=>fit();
+$('detail').onclick=()=>{
+  if(!meta)return;
+  const features=meta.layers.filter(l=>enabled.has(l.key)&&l.feature).map(l=>l.feature.typical_um).sort((a,b)=>a-b);
+  const typical=features[Math.floor(features.length/2)]||meta.minimum_feature_um;
+  box=centred((box[0]+box[2])/2,(box[1]+box[3])/2,typical*canvas.getBoundingClientRect().width/4);queue();
+};
+$('zoom-in').onclick=()=>zoom(.5);$('zoom-out').onclick=()=>zoom(2);
+$('mode').onchange=()=>{if(meta)queue();};$('grid').onchange=draw;
+function selectLayers(keys) {
+  if(!meta)return;
+  enabled=new Set(keys);
+  document.querySelectorAll('[data-layer]').forEach(input=>{input.checked=enabled.has(input.dataset.layer);});queue();
+}
+$('all').onclick=()=>selectLayers(meta?meta.layers.map(l=>l.key):[]);
+$('none').onclick=()=>selectLayers([]);
+window.addEventListener('keydown',e=>{if(e.key.toLowerCase()==='f'&&!e.ctrlKey&&!e.metaKey&&e.target===canvas){e.preventDefault();fit();}});
+window.addEventListener('pagehide',()=>{clearTimeout(timer);if(frame){frame.bitmap.close();frame=null;}});
+async function start() {
+  try {
+    const r=await fetch('/api/metadata',{cache:'no-store'});
+    if(!r.ok)throw Error('No layout service');meta=await r.json();
+    $('title').textContent=meta.top;$('hash').textContent=meta.source_sha256;
+    $('layer-count').textContent=`(${meta.layers.length})`;enabled=new Set(meta.layers.map(l=>l.key));
+    for(const l of meta.layers) {
+      const row=document.createElement('div');row.className='layer-row';
+      const label=document.createElement('label');label.className='layer';label.title=l.name+' · '+l.key;
+      const input=document.createElement('input');input.type='checkbox';input.checked=true;input.dataset.layer=l.key;
+      input.onchange=()=>{input.checked?enabled.add(l.key):enabled.delete(l.key);queue();};
+      const swatch=document.createElement('span');swatch.className='swatch';swatch.style.backgroundColor=l.color;
+      const name=document.createElement('span');name.textContent=l.name===l.key?l.key:l.name.replace(/\.drawing$/,'')+' · '+l.key;
+      label.append(input,swatch,name);
+      const solo=document.createElement('button');solo.textContent='Solo';solo.setAttribute('aria-label','Isolate '+l.name);
+      solo.onclick=()=>selectLayers([l.key]);row.append(label,solo);$('layers').append(row);
+    }
+    $('gds-download').hidden=false;$('svg-download').hidden=!meta.svg_available;$('manifest-download').hidden=!meta.svg_available;
+    resize();new ResizeObserver(resize).observe($('viewport'));if(!box)fit();
+  } catch(error) {
+    $('status').textContent='Local layout service required';$('hash').textContent='Not connected';$('message').replaceChildren();
+    const p=document.createElement('p');p.style.color='#e5e7eb';p.textContent='This viewer requires its local rendering service.';
+    const code=document.createElement('code');code.textContent='python tools/view_gds.py /path/to/layout.gds --render-dir /path/to/render';
+    const q=document.createElement('p');q.textContent='Open the localhost address printed by that command. GDS and complete SVG exports remain unchanged.';
+    $('message').append(p,code,q);
+  }
+}
+start();
+</script></body></html>
