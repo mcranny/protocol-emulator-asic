@@ -1,4 +1,4 @@
-# V2 candidate contract
+# V2 architecture and host interface
 
 This document describes the implementation on the V2 development branch. It
 does not establish a V2 release, physical acceptance, or hardware operation.
@@ -15,25 +15,30 @@ HALT and verifies the entire image before execution.
 
 The 128-word option is retained in the Python feasibility model only. Candidate
 RTL has 64 words; loading a branch outside that memory must fail before START.
-The current combined I2C controller and bidirectional I2C target each fit exactly
-64 instructions. This leaves no spare instruction capacity for those images;
-changes must repeat firmware-fit and timing tests before the ISA can be frozen.
+The combined I2C controller uses 64 instructions; the bidirectional target uses
+62. Firmware changes must repeat fit and timing checks. The instruction encodings
+and cycle semantics below define the v2 compatibility contract. Protocol behavior
+is implemented in ordinary firmware, including the custom pulse protocol.
 
 SPI controller firmware accepts `frequency=100_000` or `1_000_000`. Its delay
 constants include output, input and loop-control instructions. The selected
 SCK period is exactly 250 or 25 system clocks within each byte, for every mode.
 At 1 MHz the leading/trailing phases are 12/13 clocks; at 100 kHz both are 125
 clocks. CS is deasserted between bytes. Independent target tests cover both
-rates, all four modes and asynchronous input phases. Abort and underrun
-acceptance still requires expanded testing.
+rates, all four modes and asynchronous input phases. Abort tests cover every partial-byte position in the model and selected partial
+bytes through pins in all four modes, followed by a fresh valid transfer. Empty
+TX and controller starvation are also checked.
 
 I2C controller firmware accepts `frequency=100_000` or `400_000`. Delays account
 for instruction overhead and synchronized clock observation. Byte boundaries,
 repeated START and stretching can lengthen periods. Model and pin checks enforce
 the clock-frequency ceiling and minimum high/low times from
 [UM10204 rev. 7, table 11](https://www.nxp.com/docs/en/user-guide/UM10204.pdf).
-This is only part of I2C acceptance: input spike filtering, SDA timing, bus
-recovery and analog pad/board behavior are not established by these checks.
+Pin tests also check SDA setup, including a host refill during target clock
+stretching. Controller error tests cover NACK, arbitration loss and stuck SDA/SCL.
+The bus-clear firmware produces nine SCL pulses and STOP, with a bounded timeout
+if a line remains low. Permanent SCL-low requires external recovery. Digital
+simulation does not establish analog pad/board behavior.
 
 Program writes require a stopped selected engine. Individual START preserves
 both FIFOs and sticky errors while clearing working registers and events.
@@ -110,6 +115,22 @@ changed since the preceding edge. Wait abort masks select these events. I2C
 firmware configures START/STOP watchers; SPI target firmware watches CS release.
 These comparators do not decode protocol bytes or make protocol decisions.
 
+## Input filtering
+
+Commands 25/26 use global address zero. Command 25 takes an eight-bit mask with
+all upper payload bits zero; command 26 requires a zero payload. Both return the
+mask. A busy write rejects nonfatally. External reset clears the mask; engine
+state reset and disable retain it. Host software checks feature bit 5 before
+configuration.
+
+Each selected pin changes its observed value only after three consecutive equal
+synchronized samples. At 25 MHz this rejects pulses of at most 50 ns in the
+digital model, with three additional observation cycles relative to bypass.
+Engines and event watchers see the selected filtered values. Capture deliberately
+records raw synchronized input so that rejected glitches remain visible.
+`i2c_controller(..., filtered=True)` compensates for this additional latency;
+configure the SDA/SCL filter mask consistently with that firmware option.
+
 ## Host transport
 
 The physical framing is retained: mode 0, MSB first, exactly 40 clocks per CS,
@@ -140,13 +161,14 @@ transport exception.
 | 08 | TX level bits 4:0, RX level bits 9:5 |
 | 09 | Safe read-only version probe: `0x020240` |
 | 0A | Capabilities: `0x021010` = two engines, 16 TX, 16 RX |
-| 0B | Feature bits and capture capacity, currently `0x20001f` |
+| 0B | Feature bits and capture capacity, currently `0x20003f` |
 | 10 / 11 / 12 | Push 1 / 2 / 3 packed TX bytes, low payload byte first |
 | 13 | Reserve one RX record for the next response |
 | 20 | Atomic START, payload engine mask 1..3 |
 | 21 | Ownership: owner low byte, open-drain next byte |
 | 22 / 23 | Configure watch 0 / 1: mask, value, edge mask in increasing byte order |
 | 24 | Configure wait-abort event mask, low two bits |
+| 25 / 26 | Set / read global input-filter mask; command 25 requires both engines stopped |
 | 30..37 | Capture control/status/readout; see [capture contract](v2-capture.md) |
 
 TX packed writes are all-or-nothing against the pre-edge FIFO level. Result
@@ -167,6 +189,39 @@ control and batched TX/RX. Program readback and instruction execution share
 one read port per engine. Readback of a running engine rejects nonfatally;
 host access to a stopped engine never stalls the other engine. Stop the
 selected engine before either loading or reading its firmware.
+The [scenario workflow](v2-scenarios.md) exports, replays and checks bounded UART,
+SPI and I2C faults. Its hardware preparation/readout API is tested over simulated
+SPI pins; operation on a physical board remains unverified.
 
+## Verification status and limits
 
+Run `make v2-test` in the established Python/tool environment. Candidate core
+differential tests compare architectural state after every edge. Independent
+model and pin peers exercise firmware without using engine instruction timing
+as their decoding oracle. The integration proof assumes the separately checked
+engine/capture interfaces: queue bounds, readiness and output ownership/open-drain
+contracts. It proves configuration isolation, output masking, atomic acceptance
+and reservation reset. A separate filter proof covers three-sample qualification.
+Core formal induction covers FIFO counts, ordering and
+data preservation for an arbitrary accepted TX byte/RX record, return-stack
+bounds, output ownership, release and open-drain masking. Instruction fetch is
+overapproximated as an arbitrary word each cycle; reset is assumed on the
+initial sampled edge. This is stronger for these safety properties but does
+not prove program-storage correctness, complete protocol correctness or capture.
+Run `python tools/v2_mutations.py` to require that dropped RX data, incorrect
+packed-TX byte order, unsafe open-drain enabling, inverted wait edges, shifted
+capture timestamps and acceptance of overlapping ownership masks are detected by the tests. Capture has separate induction
+and differential checks through `make v2-capture-test`.
+
+The pin-driven sustained-UART test sends 145 TX and receives 128 RX bytes with
+a 500 us service interval. Its largest service occupies 492 us, including
+40-clock SPI frames and gaps. This proves the tested simulation budget and
+byte/frame continuity, not physical host scheduling. The API requires its
+caller to schedule service; it makes no real-time Linux guarantee.
+
+Full physical/precheck/gate-level acceptance and the public release evidence
+package remain required. Functional additions and their checks are described in
+the phase-specific PR validation record. The candidate top is not
+selected by `info.yaml`, and existing V1 acceptance must not be presented as V2
+acceptance.
 

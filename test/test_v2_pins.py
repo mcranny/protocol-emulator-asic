@@ -286,8 +286,7 @@ async def v2_bounded_firmware_playback(dut):
     cocotb.start_soon(Clock(dut.clk, 40, unit="ns").start())
     await reset(dut)
     h = Host(dut)
-    await h.request(0x21, payload=3)
-    await h.request(0x22, payload=2)
+    await h.request(0x21, payload=0x0203)
     events = [OutputEvent(0, 1, 3), OutputEvent(1, 1, 1), OutputEvent(2, 0, 3),
               OutputEvent(65539, 1, 1), OutputEvent(65542, 0, 0)]
     end = 65545
