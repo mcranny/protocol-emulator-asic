@@ -52,7 +52,7 @@ not resume execution automatically.
 The integrated capture candidate stores 32 timestamped 64-bit records without
 controlling engine execution. Its trigger, sampling, completion and readout
 specification is in [v2-capture.md](v2-capture.md). The successful combined-design evidence is recorded in
-[the local acceptance index](../evidence/v2-local-af573c5/README.md).
+[the local acceptance index](https://github.com/mcranny/protocol-emulator-asic/blob/447b3dfd0986d473c71afa28efafb3a5cff48da7/evidence/v2-local-af573c5/README.md).
 
 Ownership masks must be disjoint and can only be changed with both engines
 stopped. Input observation is shared. An open-drain mask must be a subset of

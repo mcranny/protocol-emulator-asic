@@ -25,3 +25,6 @@ formal/*/
 /test/tt/gate_level_netlist.v
 /test/tt/results.xml
 /test/tt/output/
+
+# Separate documentation environment.
+.venv-docs/

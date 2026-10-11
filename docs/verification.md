@@ -1,4 +1,4 @@
-# Verification approach
+# Verification write-up
 
 Use Python 3.11+, Icarus Verilog, Verilator, and Yosys, with the pinned
 `test/requirements.txt` dependencies. Run the complete functional gate into a
@@ -67,7 +67,55 @@ GitHub Pages/viewer deployment is a presentation step, not a physical criterion.
 
 ## V2 proof and reset scope
 
-The [five induction proofs](../formal/README.md) document their assumptions and
+The [five induction proofs](formal-proofs.md) document their assumptions and
 black boxes. The [reset and power audit](reset-and-power.md) adds four-state
 startup and state-loss checks. [Track 2](verification-track-2.md) records expanded
 RTL verification and the Lean semantics work after the candidate baseline.
+
+## V2 differential, pin and fault coverage
+
+V2 core simulation compares architectural state against the independent Python
+model at clock edges. The capture differential suite covers timestamped records,
+triggering, truncation and host readout. Fourteen pin scenarios exercise the
+complete V2 host transport and firmware. Independent UART decoders sample bit
+centers; SPI peers decode clock edges for every mode; I2C peers resolve open-drain
+lines and check ACK/NACK, repeated START, STOP and stretching. Expectations are
+not derived from the engine's current instruction or delay counters.
+
+Boundary and fault cases include FIFO full/empty admission, rejected busy writes,
+invalid image/address/encoding, malformed host frames and RX reservations,
+UART mismatch/false starts/framing/break, SPI partial transfers/abort/starvation,
+I2C NACK/arbitration/stuck lines/bus clear, capture boundaries and ownership
+conflicts. Seeds and failure traces are retained by the suites. The
+[example matrix](example-programs.md) links runnable demonstrations to these tests.
+
+The six mutations require detection of dropped RX data, swapped packed TX order,
+unsafe open-drain enable, inverted wait edge, shifted capture timestamp and
+accepted ownership overlap. Mutation sensitivity covers those chosen defects;
+it is not an estimate of all possible fault detection.
+
+## Migration, findings and limitations
+
+The frozen Step 1 migration accounts for all 583 original pytest cases and all
+24 original cocotb scenarios. No case was confirmed deprecated and none was
+deleted. Exact production executed-line and branch-arc sets were preserved
+(2948/4745 lines, 1197/1912 branches). Added qualification/checker and reset tests
+bring the development Python suite to 644 cases; two reset scenarios are additional
+to the 24 ordinary RTL scenarios. See [source-bound records](release-evidence.md).
+
+Both ordinary elaborated tops have no initialized synthesized state. Seven
+ordinary/formal elaborations permit only formal history bookkeeping initializers;
+memories remain unconstrained. Four-state startup tests observe actual unknowns,
+reject X-to-zero conversion, then check reset, active reset, logical deselection
+and replacement with a cold instance before reload. The [audit](reset-and-power.md)
+records the limits of that modeled state loss. V2 final-netlist checks remain
+required before qualification.
+
+The five induction proofs establish their listed safety properties under
+[explicit assumptions and abstractions](formal-proofs.md). They do not prove
+complete protocol semantics, analog timing or silicon behavior. Historical local
+physical acceptance is bound to af573c5; stock TT closure for each new candidate
+requires fresh evidence. [Track 2](verification-track-2.md) defines expanded
+properties, compositional-assumption review, broader mutations and Lean ISA
+encoding/execution/timing theorems, beginning with a property-to-implementation
+map. Those are planned deliverables, not V2 candidate proof claims.

@@ -34,7 +34,7 @@ qualification; historical evidence keeps its original source identity.
 
 ## Successful baseline and continuing work
 
-The [local acceptance index](../evidence/v2-local-af573c5/README.md) preserves
+The [local acceptance index](https://github.com/mcranny/protocol-emulator-asic/blob/447b3dfd0986d473c71afa28efafb3a5cff48da7/evidence/v2-local-af573c5/README.md) preserves
 the successful run and exact source identity. Check that archive independently
 from functional validation of this branch. The current Draft PR remains open
 for additional behavioral tests, formal properties and coverage review.

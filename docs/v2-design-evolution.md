@@ -70,7 +70,7 @@ produced the final candidate. The archived run completed on October 8, 2026
 with zero required physical/electrical violations, worst setup slack +18.370074 ns
 and worst hold slack +0.052527 ns. It passed 560 Python tests, 14 gate-level suites,
 nine precheck checks, existing RTL suites, five formal checks and six mutations.
-The [evidence index](../evidence/v2-local-af573c5/README.md) binds those results
+The [evidence index](https://github.com/mcranny/protocol-emulator-asic/blob/447b3dfd0986d473c71afa28efafb3a5cff48da7/evidence/v2-local-af573c5/README.md) binds those results
 to the original source and provides the full successful-run archive.
 
 The `v2-current` Draft PR remains the home for stronger behavioral tests,
