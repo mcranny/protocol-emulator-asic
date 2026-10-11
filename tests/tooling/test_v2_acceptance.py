@@ -2,7 +2,11 @@ import json
 
 import pytest
 
-from tests.support.evidence import build_physical_evidence
+from tests.support.evidence import (
+    build_physical_evidence,
+    initialization_evidence,
+    reset_evidence,
+)
 from tools import check_v2 as gate
 
 
@@ -80,6 +84,24 @@ def make_bundle(tmp_path):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(name)
             inputs[name] = gate.checksum(path)
+        identity = dict(source_commit="a" * 40, source_dirty=False, inputs=inputs)
+        for name, data in (
+            ("initialization.json", initialization_evidence(inputs)),
+            ("reset-rtl.json", reset_evidence(identity)),
+            (
+                "reset-gatelevel.json",
+                reset_evidence(identity, (2,), gate.checksum(artifacts / "netlist.v")),
+            ),
+        ):
+            (artifacts / name).write_text(json.dumps(data))
+        for name, version in (
+            ("v1-reset.xml", 1),
+            ("v2-reset.xml", 2),
+            ("v2-reset-gatelevel.xml", 2),
+        ):
+            (artifacts / name).write_text(
+                xml({f"test_v{version}_reset_and_state_loss"})
+            )
         hashes = {p.name: gate.checksum(p) for p in artifacts.iterdir()}
         data = {
             "schema": 2,

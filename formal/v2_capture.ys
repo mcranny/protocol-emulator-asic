@@ -1,3 +1,10 @@
+# Proof: F-V2-CAPTURE
+# Top: protocol_capture_v2
+# Assumptions: Initial sampled reset; arbitrary sampling and control inputs.
+# Properties: Bounds, truncation, invalid read masking, and stopped-state stability.
+# Method: temporal induction; bounded success alone is insufficient.
+# Scope and abstractions: formal/README.md.
+
 read_verilog -formal src/v2_capture.v
 prep -top protocol_capture_v2
 flatten

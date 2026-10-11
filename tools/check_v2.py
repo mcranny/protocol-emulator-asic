@@ -39,10 +39,14 @@ ARTIFACTS = {"python.xml", "v1-core.xml", "v1-pins.xml", "v2-core.xml", "v2-pins
              "formal-engine.log", "formal-v2-engine.log", "formal-v2-capture.log",
              "formal-v2-integration.log", "mutations.json", "netlist.v", "layout.gds",
              "formal-v2-input-filter.log",
-             "layout.svg", "render-manifest.json", "python-collection.txt"}
+             "layout.svg", "render-manifest.json", "python-collection.txt",
+             "initialization.json", "reset-rtl.json", "v1-reset.xml", "v2-reset.xml",
+             "reset-gatelevel.json", "v2-reset-gatelevel.xml"}
 
 
-REQUIRED_INPUTS = {"src/host_spi.v", "src/v2_engine.v", "src/v2_capture.v", "src/v2_project.v",
+REQUIRED_INPUTS = {"src/engine.v", "src/project.v", "test/reset_tb.v", "test/Makefile.reset",
+                   "test/support/reset.py", "test/v1/test_reset.py", "test/v2/test_reset.py",
+                   "tools/validate_reset.py", "tools/audit_initialization.py", "src/host_spi.v", "src/v2_engine.v", "src/v2_capture.v", "src/v2_project.v",
                    "src/config.json", "physical/v2/info.yaml", "physical/v2/overrides.json",
                    "host/protocol_emulator/v2/firmware.py", "test/v2/test_pins.py", "test/support/pins.py", "test/support/v2_pins.py",
                    "src/v2_input_filter.v", "formal/v2_input_filter.ys",
@@ -124,6 +128,18 @@ def accept(bundle):
                              ("v1-core.xml", {"test_differential_directed", "test_differential_random", "test_differential_uart"}),
                              ("v1-pins.xml", {"test_host_protocol_and_safety", "test_uart_firmware_acceptance", "test_host_phase_and_interrupted_uart"})):
         passing_xml(root / filename, required_names=suites)
+    try:
+        from .validate_reset import check_initialization, check_record
+    except ImportError:
+        import sys
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+        from tools.validate_reset import check_initialization, check_record
+    identity = dict(source_commit=source, source_dirty=False, inputs=inputs)
+    check_initialization(read("initialization.json"), inputs)
+    check_record(read("reset-rtl.json"), (1, 2), identity, "rtl")
+    check_record(read("reset-gatelevel.json"), (2,), identity, "gatelevel", artifacts["netlist.v"])
+    for filename, version in (("v1-reset.xml", 1), ("v2-reset.xml", 2), ("v2-reset-gatelevel.xml", 2)):
+        passing_xml(root / filename, required_names={f"test_v{version}_reset_and_state_loss"})
     result["python_tests"] = python_suites(root / "python.xml", root / "python-collection.txt")
     for name in ("engine", "v2-engine", "v2-capture", "v2-integration", "v2-input-filter"):
         if "Induction step proven: SUCCESS!" not in (root / f"formal-{name}.log").read_text():

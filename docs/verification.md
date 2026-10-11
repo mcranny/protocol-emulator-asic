@@ -52,3 +52,10 @@ results at its required corners, DRC/LVS/precheck results, and gate-level test
 results tied to the source commit. The default template does not run every
 possible independent DRC engine; report which checks the flow actually ran.
 GitHub Pages/viewer deployment is a presentation step, not a physical criterion.
+
+## V2 proof and reset scope
+
+The [five induction proofs](../formal/README.md) document their assumptions and
+black boxes. The [reset and power audit](reset-and-power.md) adds four-state
+startup and state-loss checks. [Track 2](verification-track-2.md) records expanded
+RTL verification and the Lean semantics work after the candidate baseline.

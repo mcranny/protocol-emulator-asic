@@ -36,6 +36,8 @@ SUITES = {
     "v2-core.xml": check_v2.CORE_SUITES,
     "v2-pins.xml": check_v2.PIN_SUITES,
     "capture.xml": {"test_v2_capture_differential"},
+    "v1-reset.xml": {"test_v1_reset_and_state_loss"},
+    "v2-reset.xml": {"test_v2_reset_and_state_loss"},
 }
 
 
@@ -222,6 +224,8 @@ def seal(kind, destination, pdk_root, execution_path="github_actions"):
             {
                 "gatelevel.xml": ROOT / "test/tt/output/gatelevel.xml",
                 "commands.json": ROOT / "test/tt/output/commands.json",
+                "reset-gatelevel.json": ROOT / "test/tt/output/reset/audit.json",
+                "v2-reset-gatelevel.xml": ROOT / "test/tt/output/reset/v2.xml",
             }
         )
         check_v2.passing_xml(files["gatelevel.xml"], required_names=check_v2.PIN_SUITES)
@@ -229,6 +233,19 @@ def seal(kind, destination, pdk_root, execution_path="github_actions"):
             netlist
         ):
             raise ValueError("simulated netlist differs from TT submission")
+        from tools.validate_reset import check_record
+
+        check_v2.passing_xml(
+            files["v2-reset-gatelevel.xml"],
+            required_names={"test_v2_reset_and_state_loss"},
+        )
+        check_record(
+            read(files["reset-gatelevel.json"]),
+            (2,),
+            origin,
+            "gatelevel",
+            check_v2.checksum(netlist),
+        )
     else:
         raise ValueError("unknown qualification stage")
     artifacts = destination / "artifacts"
@@ -283,6 +300,18 @@ def functional(directory, origin):
         raise ValueError("a frozen baseline case is missing or replaced")
     for name, suites in SUITES.items():
         check_v2.passing_xml(root / name, required_names=suites)
+    from tools.validate_reset import check_initialization, check_record
+
+    for name in (
+        "initialization.json",
+        "reset-rtl.json",
+        "v1-reset.xml",
+        "v2-reset.xml",
+    ):
+        if name not in stage["artifacts"]:
+            raise ValueError("required initialization/reset evidence missing")
+    check_initialization(read(root / "initialization.json"), stage["inputs"])
+    check_record(read(root / "reset-rtl.json"), (1, 2), stage, "rtl")
     for name in PROOFS:
         if (
             "Induction step proven: SUCCESS!"
@@ -346,7 +375,12 @@ def accept(directory, candidate, execution_path="github_actions"):
                 "layout.gds",
             },
             "precheck": {"precheck.xml"},
-            "gatelevel": {"gatelevel.xml", "commands.json"},
+            "gatelevel": {
+                "gatelevel.xml",
+                "commands.json",
+                "reset-gatelevel.json",
+                "v2-reset-gatelevel.xml",
+            },
         }[name]
         if not required <= stage["artifacts"].keys():
             raise ValueError("stage artifact inventory incomplete")
@@ -356,6 +390,19 @@ def accept(directory, candidate, execution_path="github_actions"):
         != origin["netlist_sha256"]
     ):
         raise ValueError("simulated netlist differs")
+    from tools.validate_reset import check_record
+
+    check_record(
+        read(directory / "gatelevel/artifacts/reset-gatelevel.json"),
+        (2,),
+        origin,
+        "gatelevel",
+        origin["netlist_sha256"],
+    )
+    check_v2.passing_xml(
+        directory / "gatelevel/artifacts/v2-reset-gatelevel.xml",
+        required_names={"test_v2_reset_and_state_loss"},
+    )
     count = functional(directory / "functional", origin)
     physical = directory / "physical/artifacts"
     for filename, key in (
@@ -406,7 +453,7 @@ def accept(directory, candidate, execution_path="github_actions"):
         dependencies=PINS,
         python_tests=count,
         execution_path=execution_path,
-        scope="stock TT qualification; final release and reset audit pending",
+        scope="stock TT qualification with reset audit; final release qualification pending",
     )
 
 

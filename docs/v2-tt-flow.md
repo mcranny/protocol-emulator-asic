@@ -97,8 +97,10 @@ successes, six detected mutations, both tops' lint/synthesis records, and the
 existing physical acceptance requirements. It preserves raw metrics and adds
 only the independently measured unmapped-cell count with its netlist-bound
 mapping report. A failed, skipped, missing, empty, or duplicate required result
-fails qualification. Final reset/X and full release qualification remain later
-steps; this stock-flow gate does not claim those checks have occurred.
+fails qualification. The next candidate also requires the initialization audit, both RTL reset/X
+scenarios, and the V2 netlist reset/X scenario. The already-dispatched `447b3df`
+run predates these additions; retain that distinction. Final release
+qualification remains a later gate.
 
 Failure artifacts are uploaded with `always()` or failure/cancellation
 conditions. Keep the original Actions run and its log even if a hard timeout
@@ -225,8 +227,10 @@ JSON file in the archive.
 `result_summary` records `passed: true`, the actual `pytest` count (at least
 583), `v1_core: 3`, `v1_pins: 3`, `v2_core: 3`, `v2_pins: 14`, `capture: 1`,
 `induction_proofs: 5`, `detected_mutations: 6`, `precheck: 9`, `gatelevel: 14`,
-and `required_violations: 0`. Extend this inventory for reset/X checks when
-those are introduced; do not represent future tests as already executed.
+and `required_violations: 0`. From the reset-audit revision onward also require
+`rtl_reset_suites: 2`, `gatelevel_reset_suites: 1`, and
+`initialization_elaborations: 7`. Do not report these for the earlier `447b3df`
+run unless the additional checks were actually executed against its artifacts.
 
 This reporting run records locally validated evidence. It checks report
 fields and original timeout identity; it does not independently rerun physical
@@ -251,3 +255,19 @@ This avoids requiring a preliminary merge solely to register a new manual
 workflow. [GitHub requires a manual workflow to exist on the default branch](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow);
 the existing entrypoint calls the reusable report workflow from the selected
 revision. Unknown modes fail before any source checkout or qualification job.
+
+## Reset-audit addition
+
+Before sealing the gate-level stage for candidates containing the Step 3 audit,
+run the following from the original clean candidate checkout (the hosted adapter
+runs it automatically):
+
+```sh
+python -m tools.validate_reset --version 2 \
+  --netlist tt_submission/tt_um_mcranny_protocol_emulator_v2.v \
+  --pdk-root "$PDK_ROOT" --output test/tt/output/reset
+```
+
+The seal binds that audit and its exact XML identity to the same netlist and
+source as the 14 ordinary pin scenarios. The full functional runner separately
+runs both RTL reset scenarios and all seven initialization elaborations.

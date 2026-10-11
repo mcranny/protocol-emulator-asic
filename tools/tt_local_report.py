@@ -24,6 +24,9 @@ COUNTS = {
     "precheck": 9,
     "gatelevel": 14,
     "required_violations": 0,
+    "rtl_reset_suites": 2,
+    "gatelevel_reset_suites": 1,
+    "initialization_elaborations": 7,
 }
 
 

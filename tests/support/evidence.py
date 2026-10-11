@@ -43,3 +43,53 @@ def build_physical_evidence(tmp_path):
         + "</testsuite>"
     )
     return metrics, config, pre, gl
+
+
+def reset_evidence(identity, versions=(1, 2), netlist_hash=None):
+    """Complete synthetic audit for acceptance-failure fixtures."""
+    return dict(
+        identity,
+        passed=True,
+        simulation="gatelevel" if netlist_hash else "rtl",
+        netlist_sha256=netlist_hash,
+        commands=[{"exit_code": 0} for _ in versions],
+        reports={
+            f"v{v}": {
+                "version": v,
+                "passed": True,
+                "simulator": "Icarus Verilog",
+                "resolve_x": "error",
+                "startup_unknown": "X",
+                "replacement_unknown": "X",
+                "replacement_unknown_before_reset": "X",
+                "checks": [
+                    "startup_reset_reload",
+                    "reset_during_activity",
+                    "powered_disable_and_reselection",
+                    "state_loss_reset_reconfigure_reload",
+                ],
+            }
+            for v in versions
+        },
+    )
+
+
+def initialization_evidence(inputs):
+    return {
+        "passed": True,
+        "sources": {
+            k: v for k, v in inputs.items() if k.startswith("src/") and k.endswith(".v")
+        },
+        "results": {
+            name: {"formal_bookkeeping": [], "uninitialized_memories": []}
+            for name in (
+                "rtl-tt_um_mcranny_protocol_emulator",
+                "rtl-tt_um_mcranny_protocol_emulator_v2",
+                "formal-protocol_engine",
+                "formal-protocol_engine_v2",
+                "formal-protocol_capture_v2",
+                "formal-protocol_input_filter_v2",
+                "formal-tt_um_mcranny_protocol_emulator_v2",
+            )
+        },
+    }

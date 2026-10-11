@@ -70,3 +70,16 @@ The complete gate retains suite XML, logs, source hashes, and tool versions in
 its chosen output directory. Individual Makefile runs retain reproduction
 data and divergence reports under `test/output` and their configured simulator
 build directory. Preserve failed runs when rerunning a check.
+
+## Four-state reset and state-loss audit
+
+`v1/test_reset.py` and `v2/test_reset.py` add one audit scenario per version to
+the preserved 24 ordinary scenarios. `support/reset.py` drives two uninitialized
+DUT instances in `reset_tb.v`; replacement models complete state loss.
+`Makefile.reset` always uses Icarus and rejects X coercion through the runner.
+
+Run `python -m tools.validate_reset --output build/reset-new` from the repository
+root. Add `--version 2 --netlist ... --pdk-root ...` for the corresponding
+netlist audit. The complete functional runner executes the RTL checks and
+`tools.audit_initialization`; [reset documentation](../docs/reset-and-power.md)
+records assumptions, limitations, and the required restart sequence.

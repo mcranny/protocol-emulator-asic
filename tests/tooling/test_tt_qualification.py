@@ -4,7 +4,11 @@ import copy
 
 import pytest
 
-from tests.support.evidence import build_physical_evidence
+from tests.support.evidence import (
+    build_physical_evidence,
+    initialization_evidence,
+    reset_evidence,
+)
 from tools import check_v2
 from tools import tt_qualification as tt
 
@@ -172,6 +176,13 @@ def make_qualification(tmp_path):
             else:
                 (artifacts / "gatelevel.xml").write_text(xml(check_v2.PIN_SUITES))
                 tt.write(artifacts / "commands.json", {"netlist_sha256": net_hash})
+                tt.write(
+                    artifacts / "reset-gatelevel.json",
+                    reset_evidence(origin, (2,), net_hash),
+                )
+                (artifacts / "v2-reset-gatelevel.xml").write_text(
+                    xml({"test_v2_reset_and_state_loss"})
+                )
             tt.write(
                 root / kind / "stage.json",
                 dict(
@@ -202,6 +213,10 @@ def make_qualification(tmp_path):
             artifacts / "mutations.json",
             [{"mutation": name, "detected": True} for name in check_v2.MUTATIONS],
         )
+        tt.write(
+            artifacts / "initialization.json", initialization_evidence(origin["inputs"])
+        )
+        tt.write(artifacts / "reset-rtl.json", reset_evidence(origin))
         commands = [
             {"log": f"{tool}-{top}.log", "exit_code": 0}
             for tool in ("lint", "synth")

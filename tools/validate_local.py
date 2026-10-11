@@ -90,6 +90,14 @@ def validate(destination, require_clean=False):
                                f'SIM_BUILD={destination / "sim" / name}',
                                f'COCOTB_RESULTS_FILE={artifacts / (name + ".xml")}'])
             passing_xml(artifacts / (name + '.xml'), required_names=suites)
+        run('initialization-run.log', [sys.executable, '-m', 'tools.audit_initialization',
+                                       '--output', str(destination / 'initialization')])
+        shutil.copy2(destination / 'initialization/initialization.json', artifacts / 'initialization.json')
+        run('reset-audit-run.log', [sys.executable, '-m', 'tools.validate_reset',
+                                   '--output', str(destination / 'reset-audit')])
+        shutil.copy2(destination / 'reset-audit/audit.json', artifacts / 'reset-rtl.json')
+        for version in (1, 2):
+            shutil.copy2(destination / f'reset-audit/v{version}.xml', artifacts / f'v{version}-reset.xml')
         for name in ('engine', 'v2-engine', 'v2-capture', 'v2-integration', 'v2-input-filter'):
             run(f'formal-{name}.log', ['yosys', '-Q', '-T', '-s',
                                       'formal/' + name.replace('-', '_') + '.ys'])
