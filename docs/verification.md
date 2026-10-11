@@ -1,8 +1,20 @@
 # Verification approach
 
-Run `make test` with Python 3.11+, the pinned test requirements, Icarus Verilog,
-Verilator, and Yosys on PATH. `make synth` produces a technology-independent
-cell report; this is not the mapped CMOS5L area or routed timing result.
+Use Python 3.11+, Icarus Verilog, Verilator, and Yosys, with the pinned
+`test/requirements.txt` dependencies. Run the complete functional gate into a
+new directory:
+
+```sh
+python tools/validate_local.py --require-clean --output build/validation-new
+```
+
+For development with uncommitted changes, omit `--require-clean`; the manifest
+will explicitly identify dirty-source evidence. The runner requires complete
+pytest collection, both tops' lint/synthesis, 24 ordinary RTL scenarios, two
+four-state reset scenarios, seven initialization elaborations, all five
+induction proofs, and all six detected mutations. Technology-independent
+synthesis is not a routed area or timing result. Physical approval and exact
+netlist checks follow the [TT procedure](v2-tt-flow.md).
 
 ## Independent checks
 

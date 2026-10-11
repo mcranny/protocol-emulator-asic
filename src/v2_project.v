@@ -254,7 +254,7 @@ module tt_um_mcranny_protocol_emulator_v2 (
     // Compositional proof: engine output masking is proved in v2_engine.ys.
     // Host transactions are otherwise arbitrary, including malformed commands.
     // Capture/engine state is abstracted; these assumptions state only the
-    // separately proved output contract and the reset behavior of the host.
+    // separately proved output properties and the reset behavior of the host.
     reg formal_past_valid;
     initial formal_past_valid = 0;
     always @* begin
@@ -293,7 +293,7 @@ module tt_um_mcranny_protocol_emulator_v2 (
             end
         end
     end
-    // FIFO readiness is a combinational part of the proved engine contract.
+    // FIFO readiness is a combinational part of the proved engine interface.
     always @* begin
         assume(txlevel0 <= 16 && txlevel1 <= 16);
         assume(ready0 == (tx_count != 0 && {1'b0,txlevel0} + {4'b0,tx_count} <= 16));

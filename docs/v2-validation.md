@@ -7,24 +7,18 @@ The [design evolution](v2-design-evolution.md) explains the measured decisions.
 
 ## Functional checks
 
-Install `test/requirements.txt` in a Python virtual environment and provide
-Icarus Verilog, Verilator and Yosys. Run `make test`, `make v2-test`,
-`make v2-capture-test` and `python tools/v2_mutations.py`.
-V1 and V2 have independent CI jobs. The V2 job also runs shared tooling tests.
-
-For a complete immutable functional record from a clean checkout:
-
-```sh
-python tools/validate_local.py --require-clean --output build/validation-new
-```
-
-The runner checks collected Python test identities, both top-level designs,
-core/pin/capture simulation, the five existing formal proofs and six mutations.
-Outputs are local evidence, not tracked source.
+The [verification write-up](verification.md) gives the complete functional
+command and the [reset audit](reset-and-power.md) documents four-state checks.
+The full gate retains Python identities, both tops' lint/synthesis, all ordinary
+core/pin/capture scenarios, both RTL reset scenarios, seven initialization
+elaborations, five induction proofs, and six mutations in a new output directory.
 
 ## Physical and acceptance checks
 
-`tools/v2_candidate.py` prepares a new candidate with pinned constraints.
+The [stock TT procedure](v2-tt-flow.md) is the submission-flow qualification
+path. The repair and checkpoint tools below remain retained diagnostic tools;
+they are not the timeout fallback. `tools/v2_candidate.py` prepares a new
+candidate with pinned constraints.
 `tools/v2_closure.py` requires fresh all-corner reports and connectivity checks;
 `tools/v2_route_trial.py` and `tools/v2_route_resume.py` retain controlled routing
 attempts. Use each command's `--help` for required inputs. Reusing a checkpoint

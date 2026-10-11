@@ -132,3 +132,19 @@ leaves UART idle high until the next byte arrives.
 
 Reset deassertion is synchronized for two system edges at the top level;
 hold reset low for at least two edges and allow ten edges before host traffic.
+
+## V1 firmware and host throughput limits
+
+The UART TX firmware uses 25 of 64 instruction words (39.1%). At a 25 MHz
+system clock, its 25-cycle bit interval is exactly 1 Mbaud; 217 cycles is
+approximately 115207.37 baud (+0.0064% relative to 115200). Back-to-back 8N1
+payload rates are 100000 and approximately 11520.74 bytes/s while data is queued.
+
+The V1 request/response API needs two 40-clock host frames per byte pushed.
+At the 1 MHz host limit, its ceiling before CS gaps/software overhead is
+12500 bytes/s. Hypothetical one-byte-per-frame pipelining would still be limited
+to 25000 bytes/s before gaps. Four queued bytes cover 40 us at 1 Mbaud or about
+347.2 us at the slower rate. A larger queue absorbs jitter but cannot remove a
+sustained host bandwidth deficit. Continuous service on a hardware host has not
+been demonstrated. V2's packed writes and larger queues have their own measured
+simulation budget in the V2 architecture; do not apply V1 limits as V2 claims.

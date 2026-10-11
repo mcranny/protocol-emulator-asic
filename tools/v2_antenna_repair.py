@@ -30,7 +30,7 @@ def relocate(value):
 def repair_config(config):
     for key, expected in closure.FIXED.items():
         if key not in ('OPENROAD_THREADS', 'STA_THREADS') and config.get(key) != expected:
-            raise ValueError(f'fixed contract differs: {key}')
+            raise ValueError(f'fixed physical constraint differs: {key}')
     return dict(config, DESIGN_DIR='/closure', OPENROAD_THREADS=6, STA_THREADS=6,
                 DRT_ANTENNA_REPAIR_ITERS=6, DRT_ANTENNA_REPAIR_JUMPER_ONLY=False,
                 DRT_ANTENNA_REPAIR_DIODE_ONLY=True, DRT_SAVE_SNAPSHOTS=True,
