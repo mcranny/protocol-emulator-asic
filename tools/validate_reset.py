@@ -204,6 +204,75 @@ def check_initialization(summary, inputs):
     ):
         raise ValueError("synthesized state was initialized")
 
+    memory_inventory = {
+        "protocol_engine": {
+            ("protocol_engine", "fifo", 32),
+            ("protocol_engine", "program_mem", 1536),
+        },
+        "protocol_engine_v2": {
+            ("protocol_engine_v2", "program_mem", 1536),
+            ("protocol_engine_v2", "tx_mem", 128),
+            ("protocol_engine_v2", "rx_mem", 256),
+        },
+        "protocol_capture_v2": {("protocol_capture_v2", "records", 2048)},
+        "protocol_input_filter_v2": set(),
+    }
+    v2_modules = {
+        "protocol_engine_v2",
+        "protocol_capture_v2",
+        "protocol_input_filter_v2",
+        TOPS[1],
+    }
+    for name, result in summary["results"].items():
+        formal, top = name.split("-", 1)
+        modules = (
+            v2_modules
+            if top == TOPS[1]
+            else {"protocol_engine"}
+            if top == TOPS[0]
+            else {top}
+        )
+        expected_memory = set().union(
+            *(memory_inventory.get(module, set()) for module in modules)
+        )
+        memories = result.get("uninitialized_memories", [])
+        actual_memory = {
+            (m.get("module"), m.get("name"), m.get("bits")) for m in memories
+        }
+        if actual_memory != expected_memory or len(memories) != len(expected_memory):
+            raise ValueError("initialization audit memory inventory differs")
+        history = result.get("formal_bookkeeping", [])
+        required_history = (
+            {
+                (module, signal)
+                for module in modules
+                for signal in BOOKKEEPING.get(module, set())
+            }
+            if formal == "formal"
+            else set()
+        )
+        actual_history = set()
+        seen = set()
+        for entry in history:
+            key = (entry.get("module"), entry.get("name"))
+            generated_enable = (
+                isinstance(key[1], str)
+                and key[1].startswith("$formal$")
+                and key[1].endswith("_EN")
+            )
+            if (
+                key in seen
+                or key[0] not in modules
+                or set(str(entry.get("value", ""))) != {"0"}
+                or (key not in required_history and not generated_enable)
+            ):
+                raise ValueError("initialization audit history inventory differs")
+            seen.add(key)
+            if not generated_enable:
+                actual_history.add(key)
+        if actual_history != required_history:
+            raise ValueError("initialization audit history inventory differs")
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)

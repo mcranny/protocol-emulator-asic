@@ -75,21 +75,50 @@ def reset_evidence(identity, versions=(1, 2), netlist_hash=None):
 
 
 def initialization_evidence(inputs):
+    memories = {
+        "protocol_engine": [("fifo", 32), ("program_mem", 1536)],
+        "protocol_engine_v2": [("program_mem", 1536), ("rx_mem", 256), ("tx_mem", 128)],
+        "protocol_capture_v2": [("records", 2048)],
+        "protocol_input_filter_v2": [],
+    }
+    bookkeeping = {
+        "protocol_engine": "past_valid",
+        "protocol_engine_v2": "past_valid",
+        "protocol_capture_v2": "past_valid",
+        "protocol_input_filter_v2": "valid",
+        "tt_um_mcranny_protocol_emulator_v2": "formal_past_valid",
+    }
+    v2 = [
+        "protocol_engine_v2",
+        "protocol_capture_v2",
+        "protocol_input_filter_v2",
+        "tt_um_mcranny_protocol_emulator_v2",
+    ]
+    scopes = {
+        "rtl-tt_um_mcranny_protocol_emulator": ["protocol_engine"],
+        "rtl-tt_um_mcranny_protocol_emulator_v2": v2,
+        **{"formal-" + name: [name] for name in memories},
+        "formal-tt_um_mcranny_protocol_emulator_v2": v2,
+    }
     return {
         "passed": True,
         "sources": {
             k: v for k, v in inputs.items() if k.startswith("src/") and k.endswith(".v")
         },
         "results": {
-            name: {"formal_bookkeeping": [], "uninitialized_memories": []}
-            for name in (
-                "rtl-tt_um_mcranny_protocol_emulator",
-                "rtl-tt_um_mcranny_protocol_emulator_v2",
-                "formal-protocol_engine",
-                "formal-protocol_engine_v2",
-                "formal-protocol_capture_v2",
-                "formal-protocol_input_filter_v2",
-                "formal-tt_um_mcranny_protocol_emulator_v2",
-            )
+            name: {
+                "formal_bookkeeping": [
+                    {"module": module, "name": bookkeeping[module], "value": "0"}
+                    for module in modules
+                ]
+                if name.startswith("formal-")
+                else [],
+                "uninitialized_memories": [
+                    {"module": module, "name": memory, "bits": bits}
+                    for module in modules
+                    for memory, bits in memories.get(module, [])
+                ],
+            }
+            for name, modules in scopes.items()
         },
     }

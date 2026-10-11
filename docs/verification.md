@@ -100,7 +100,7 @@ The frozen Step 1 migration accounts for all 583 original pytest cases and all
 24 original cocotb scenarios. No case was confirmed deprecated and none was
 deleted. Exact production executed-line and branch-arc sets were preserved
 (2948/4745 lines, 1197/1912 branches). Added qualification/checker and reset tests
-bring the development Python suite to 644 cases; two reset scenarios are additional
+bring the development Python suite to 651 cases; two reset scenarios are additional
 to the 24 ordinary RTL scenarios. See [source-bound records](release-evidence.md).
 
 Both ordinary elaborated tops have no initialized synthesized state. Seven

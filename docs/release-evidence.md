@@ -23,7 +23,7 @@ reconnection and guarded fanout repair from operations performed by stock TT.
 | Stock V2 qualification | [Run 38155699349](https://github.com/mcranny/protocol-emulator-asic/actions/runs/38155699349), source 447b3df; consult retained final result before making a physical-pass claim |
 | Manual TT run | [Run 38115576757](https://github.com/mcranny/protocol-emulator-asic/actions/runs/38115576757), source 3d5210a, produced the V1 top; it does not qualify V2 |
 | Historical local acceptance | `af573c5fef6f96b4c2fbd400e6565b3b41f54aef`; [immutable evidence index](https://github.com/mcranny/protocol-emulator-asic/blob/447b3dfd0986d473c71afa28efafb3a5cff48da7/evidence/v2-local-af573c5/README.md) retains its original source identity |
-| Reset/formal development | Expanded local gate includes 644 pytest cases, two additional RTL reset scenarios and seven initialization elaborations; final V2 netlist audit remains required |
+| Reset/formal development | Expanded local gate includes 651 pytest cases, two additional RTL reset scenarios and seven initialization elaborations; final V2 netlist audit remains required |
 
 Executable migration measurements preserve the same production executed lines
 and branch arcs: 2948/4745 lines and 1197/1912 branches at the Step 1 checkpoint.

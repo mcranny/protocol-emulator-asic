@@ -117,3 +117,62 @@ def test_audit_ignores_inherited_coercion_filters_and_simulator_overrides(monkey
     assert result["COCOTB_RESOLVE_X"] == "error"
     assert "COCOTB_TEST_FILTER" not in result
     assert "COMPILE_ARGS" not in result
+
+
+@pytest.mark.parametrize(
+    "corruption",
+    [
+        "empty-result",
+        "missing-memory",
+        "duplicate-memory",
+        "wrong-size",
+        "missing-history",
+        "nonzero-history",
+        "unexpected-history",
+    ],
+    ids=[
+        "empty-result",
+        "missing-memory",
+        "duplicate-memory",
+        "wrong-size",
+        "missing-history",
+        "nonzero-history",
+        "unexpected-history",
+    ],
+)
+def test_initialization_summary_requires_complete_inventories(corruption):
+    from tests.support.evidence import initialization_evidence
+    from tools.validate_reset import check_initialization
+
+    inputs = {
+        "src/" + name + ".v": "a" * 64
+        for name in (
+            "engine",
+            "host_spi",
+            "project",
+            "v2_engine",
+            "v2_capture",
+            "v2_input_filter",
+            "v2_project",
+        )
+    }
+    summary = initialization_evidence(inputs)
+    check_initialization(summary, inputs)
+    key = "formal-protocol_engine_v2"
+    result = summary["results"][key]
+    if corruption == "empty-result":
+        summary["results"][key] = {}
+    elif corruption == "missing-memory":
+        result["uninitialized_memories"].pop()
+    elif corruption == "duplicate-memory":
+        result["uninitialized_memories"].append(result["uninitialized_memories"][0])
+    elif corruption == "wrong-size":
+        result["uninitialized_memories"][0]["bits"] = 1
+    elif corruption == "missing-history":
+        result["formal_bookkeeping"] = []
+    elif corruption == "nonzero-history":
+        result["formal_bookkeeping"][0]["value"] = "1"
+    else:
+        result["formal_bookkeeping"][0]["name"] = "running"
+    with pytest.raises(ValueError, match="inventory differs"):
+        check_initialization(summary, inputs)
