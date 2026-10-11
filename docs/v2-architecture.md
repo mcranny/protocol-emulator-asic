@@ -17,7 +17,7 @@ The 128-word option is retained in the Python feasibility model only. Candidate
 RTL has 64 words; loading a branch outside that memory must fail before START.
 The combined I2C controller uses 64 instructions; the bidirectional target uses
 62. Firmware changes must repeat fit and timing checks. The instruction encodings
-and cycle semantics below define the v2 compatibility contract. Protocol behavior
+and cycle semantics below define the v2 compatibility specification. Protocol behavior
 is implemented in ordinary firmware, including the custom pulse protocol.
 
 SPI controller firmware accepts `frequency=100_000` or `1_000_000`. Its delay
@@ -51,7 +51,7 @@ not resume execution automatically.
 
 The integrated capture candidate stores 32 timestamped 64-bit records without
 controlling engine execution. Its trigger, sampling, completion and readout
-contract is in [v2-capture.md](v2-capture.md). The successful combined-design evidence is recorded in
+specification is in [v2-capture.md](v2-capture.md). The successful combined-design evidence is recorded in
 [the local acceptance index](../evidence/v2-local-af573c5/README.md).
 
 Ownership masks must be disjoint and can only be changed with both engines
@@ -169,7 +169,7 @@ transport exception.
 | 22 / 23 | Configure watch 0 / 1: mask, value, edge mask in increasing byte order |
 | 24 | Configure wait-abort event mask, low two bits |
 | 25 / 26 | Set / read global input-filter mask; command 25 requires both engines stopped |
-| 30..37 | Capture control/status/readout; see [capture contract](v2-capture.md) |
+| 30..37 | Capture control/status/readout; see [capture specification](v2-capture.md) |
 
 TX packed writes are all-or-nothing against the pre-edge FIFO level. Result
 bits 4:0 contain the pre-push level and bits 6:5 the accepted byte count.
@@ -200,7 +200,7 @@ differential tests compare architectural state after every edge. Independent
 model and pin peers exercise firmware without using engine instruction timing
 as their decoding oracle. The integration proof assumes the separately checked
 engine/capture interfaces: queue bounds, readiness and output ownership/open-drain
-contracts. It proves configuration isolation, output masking, atomic acceptance
+specifications. It proves configuration isolation, output masking, atomic acceptance
 and reservation reset. A separate filter proof covers three-sample qualification.
 Core formal induction covers FIFO counts, ordering and
 data preservation for an arbitrary accepted TX byte/RX record, return-stack
@@ -244,7 +244,7 @@ capacity reservation (`GRT_ADJUSTMENT=0.05`). A 70% slew repair guard band and
 six iterations and uses diode-only repair after detailed routing. Signal and
 clock routing both use Metal2 through Metal4; TopMetal1 remains excluded.
 The placement and global-route hold margins are 0.05 ns. These settings retain
-the successful RX-sharing candidate's routing contract and replace the older
+the successful RX-sharing candidate's routing specification and replace the older
 Metal1/jumper-only experiment. Any fanout added by antenna diodes must be
 repaired and rechecked with fresh extracted timing; it is not waived.
 These are implementation settings; the 6x4 footprint, 40 ns clock, 1.5 ns

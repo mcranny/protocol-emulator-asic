@@ -8,13 +8,13 @@ cell report; this is not the mapped CMOS5L area or routed timing result.
 
 - Python tests use hand-encoded words, expected PC sequences, and independent
   bit-cell schedules in addition to assembler round trips.
-- `test/test_engine.py` compares architectural state after every system edge:
+- `test/v1/test_engine.py` compares architectural state after every system edge:
   PC, registers, output shifter, output values/enables, FIFO level, error flags,
   and delay/wait counters. It compares host responses before execution.
 - Twelve fixed random seeds exercise instructions and concurrent host access.
   Failures save the seed, program, recent stimulus, and first divergence under
   `test/output/`. UART tests save firmware and sampled pin waveforms.
-- `test/test.py` operates through top-level pins only. Its independent UART
+- `test/v1/test_pins.py` operates through top-level pins only. Its independent UART
   decoder checks every bit cell and frame spacing at both specified rates.
   The same suite runs against the submitted netlist in the gate-level job.
 
@@ -33,7 +33,7 @@ does not satisfy this target.
 ## Clock/reset crossing review
 
 All sequential logic uses the system clock. SPI SCK, CS, MOSI and protocol
-inputs enter two-stage synchronizers. The host contract requires >=200 ns high,
+inputs enter two-stage synchronizers. The host specification requires >=200 ns high,
 low, CS setup, hold, and inactive intervals, providing five system periods per
 minimum interval; 1 MHz SCK is the supported limit. MISO is prepared after the
 detected falling edge, before the next rising edge. Inputs have no guaranteed

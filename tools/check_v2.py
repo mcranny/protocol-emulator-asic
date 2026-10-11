@@ -18,17 +18,17 @@ except ImportError:  # Direct command-line invocation.
     from check_physical import check, passing_xml
 
 PIN_SUITES = {
-    "v2_pin_transport_safety", "v2_capture_host_and_noninterference",
-    "v2_uart_fault_capture_and_scenario", "v2_bounded_firmware_playback",
-    "v2_full_duplex_host_budget", "v2_uart_megabaud_buffered_duplex",
-    "v2_spi_target_independent_peer", "v2_spi_controller_independent_decoder",
-    "v2_i2c_controller_independent_peer", "v2_i2c_target_independent_peer",
-    "v2_protocol_faults",
-    "v2_spi_i2c_fault_scenarios",
-    "v2_input_filter_spikes_and_bypass",
-    "v2_custom_pulse_protocol",
+    "test_v2_pin_transport_safety", "test_v2_capture_host_and_noninterference",
+    "test_v2_uart_fault_capture_and_scenario", "test_v2_bounded_firmware_playback",
+    "test_v2_full_duplex_host_budget", "test_v2_uart_megabaud_buffered_duplex",
+    "test_v2_spi_target_independent_peer", "test_v2_spi_controller_independent_decoder",
+    "test_v2_i2c_controller_independent_peer", "test_v2_i2c_target_independent_peer",
+    "test_v2_protocol_faults",
+    "test_v2_spi_i2c_fault_scenarios",
+    "test_v2_input_filter_spikes_and_bypass",
+    "test_v2_custom_pulse_protocol",
 }
-CORE_SUITES = {"v2_uart_differential", "v2_instruction_differential", "v2_fifo_boundary_differential"}
+CORE_SUITES = {"test_v2_uart_differential", "test_v2_instruction_differential", "test_v2_fifo_boundary_differential"}
 PRECHECK_SUITES = {"KLayout pin label overlapping drawing", "KLayout SG13CMOS5L DRC",
     "KLayout zero area", "KLayout Checks", "Pin check", "Boundary check", "Layer check",
     "Cell name check", "Analog pin check"}
@@ -44,7 +44,7 @@ ARTIFACTS = {"python.xml", "v1-core.xml", "v1-pins.xml", "v2-core.xml", "v2-pins
 
 REQUIRED_INPUTS = {"src/host_spi.v", "src/v2_engine.v", "src/v2_capture.v", "src/v2_project.v",
                    "src/config.json", "physical/v2/info.yaml", "physical/v2/overrides.json",
-                   "host/protocol_emulator/v2/firmware.py", "test/test_v2_pins.py",
+                   "host/protocol_emulator/v2/firmware.py", "test/v2/test_pins.py", "test/support/pins.py", "test/support/v2_pins.py",
                    "src/v2_input_filter.v", "formal/v2_input_filter.ys",
                    "host/protocol_emulator/v2/custom_protocol.py", "formal/v2_engine.ys", "formal/v2_capture.ys", "formal/v2_integration.ys"}
 
@@ -120,9 +120,9 @@ def accept(bundle):
     result = check(read("metrics.json"), config, root / "precheck.xml", root / "gatelevel.xml",
                    pin_suites=PIN_SUITES, precheck_suites=PRECHECK_SUITES)
     for filename, suites in (("v2-core.xml", CORE_SUITES), ("v2-pins.xml", PIN_SUITES),
-                             ("capture.xml", {"v2_capture_differential"}),
-                             ("v1-core.xml", {"differential_directed", "differential_random", "differential_uart"}),
-                             ("v1-pins.xml", {"host_protocol_and_safety", "uart_firmware_acceptance", "host_phase_and_interrupted_uart"})):
+                             ("capture.xml", {"test_v2_capture_differential"}),
+                             ("v1-core.xml", {"test_differential_directed", "test_differential_random", "test_differential_uart"}),
+                             ("v1-pins.xml", {"test_host_protocol_and_safety", "test_uart_firmware_acceptance", "test_host_phase_and_interrupted_uart"})):
         passing_xml(root / filename, required_names=suites)
     result["python_tests"] = python_suites(root / "python.xml", root / "python-collection.txt")
     for name in ("engine", "v2-engine", "v2-capture", "v2-integration", "v2-input-filter"):

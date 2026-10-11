@@ -8,7 +8,7 @@ implements 8N1 transmission at 1 Mbaud or approximately 115200 baud with a
 
 Outputs are released on reset, disable, stop, halt, or fatal error. Program
 memory must be loaded after external reset. Instruction timing and the complete
-host protocol are documented in v1-contract.md.
+host protocol are documented in v1-specification.md.
 
 ## How to test
 

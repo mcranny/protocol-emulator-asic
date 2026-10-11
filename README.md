@@ -45,7 +45,7 @@ local optimization, not on every push. It remains mandatory before release.
 
 ## Documentation
 
-- [ISA, timing, host interface and pin allocation](docs/v1-contract.md)
+- [ISA, timing, host interface and pin allocation](docs/v1-specification.md)
 - [Verification and clock/reset crossing review](docs/verification.md)
 - [Build and physical acceptance evidence](docs/validation.md)
 - [Phase 2 sequence and current throughput limits](docs/phase-2-plan.md)

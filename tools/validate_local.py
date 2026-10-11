@@ -81,11 +81,11 @@ def validate(destination, require_clean=False):
             run(f'synth-{top}.log', ['yosys', '-Q', '-T', '-p',
                                      f'read_verilog src/*.v; synth -top {top}; stat'])
         for name, makefile, suites in (
-            ('v1-core', 'Makefile.core', {'differential_directed', 'differential_random', 'differential_uart'}),
-            ('v1-pins', 'Makefile', {'host_protocol_and_safety', 'uart_firmware_acceptance', 'host_phase_and_interrupted_uart'}),
+            ('v1-core', 'Makefile.core', {'test_differential_directed', 'test_differential_random', 'test_differential_uart'}),
+            ('v1-pins', 'Makefile', {'test_host_protocol_and_safety', 'test_uart_firmware_acceptance', 'test_host_phase_and_interrupted_uart'}),
             ('v2-core', 'Makefile.v2', CORE_SUITES),
             ('v2-pins', 'Makefile.v2pins', PIN_SUITES),
-            ('capture', 'Makefile.v2capture', {'v2_capture_differential'})):
+            ('capture', 'Makefile.v2capture', {'test_v2_capture_differential'})):
             run(f'{name}.log', ['make', '-C', 'test', '-f', makefile,
                                f'SIM_BUILD={destination / "sim" / name}',
                                f'COCOTB_RESULTS_FILE={artifacts / (name + ".xml")}'])

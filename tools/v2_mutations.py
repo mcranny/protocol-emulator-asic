@@ -16,15 +16,15 @@ import xml.etree.ElementTree as ET
 ROOT = Path(__file__).resolve().parents[1]
 CASES = [
     ("rx_drop", "v2_engine.v", "wire rx_push = execute && fetch_ok", "wire rx_push = 1'b0 && execute && fetch_ok",
-     "Makefile.v2", "v2_uart_differential"),
+     "Makefile.v2", "test_v2_uart_differential"),
     ("tx_byte_order", "v2_engine.v", "tx_mem[tx_wr + 4'd2] <= tx_data[23:16]", "tx_mem[tx_wr + 4'd2] <= tx_data[15:8]",
-     "Makefile.v2", "v2_fifo_boundary_differential"),
+     "Makefile.v2", "test_v2_fifo_boundary_differential"),
     ("open_drain_high", "v2_engine.v", " & ~(out_value & open_drain)", "",
-     "Makefile.v2pins", "v2_pin_transport_safety"),
+     "Makefile.v2pins", "test_v2_pin_transport_safety"),
     ("wait_edge", "v2_engine.v", "pins_in[wait_pin] == wait_level", "pins_in[wait_pin] != wait_level",
-     "Makefile.v2", "v2_instruction_differential"),
+     "Makefile.v2", "test_v2_instruction_differential"),
     ("capture_timestamp", "v2_capture.v", "timestamp + 1'b1", "timestamp + 2'd2",
-     "Makefile.v2capture", "v2_capture_differential"),
+     "Makefile.v2capture", "test_v2_capture_differential"),
 ]
 
 

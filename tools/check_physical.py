@@ -9,8 +9,8 @@ import xml.etree.ElementTree as ET
 CORNERS = ("nom_fast_1p32V_m40C", "nom_slow_1p08V_125C", "nom_typ_1p20V_25C")
 DIE_AREA = [0, 0, 1289.28, 710.64]
 ELECTRICAL_RULES = ("slew", "fanout", "cap")
-PIN_SUITES = {"host_protocol_and_safety", "uart_firmware_acceptance",
-              "host_phase_and_interrupted_uart"}
+PIN_SUITES = {"test_host_protocol_and_safety", "test_uart_firmware_acceptance",
+              "test_host_phase_and_interrupted_uart"}
 
 
 def number(data, key):
@@ -132,7 +132,7 @@ def main():
         verify_checksum(gl, "test/results.xml", args.gatelevel)
         python_count = passing_xml(args.python_tests)
         core_count = passing_xml(args.core_tests, required_names={
-            "differential_directed", "differential_random", "differential_uart"})
+            "test_differential_directed", "test_differential_random", "test_differential_uart"})
         if "Induction step proven: SUCCESS!" not in args.formal_log.read_text():
             raise ValueError("missing induction proof success")
         result = check(json.loads(args.metrics.read_text()), json.loads(args.config.read_text()),
