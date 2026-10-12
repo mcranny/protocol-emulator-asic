@@ -21,13 +21,26 @@ def local_report():
     )
     original = dict(
         id=123,
+        run_attempt=1,
         head_sha="a" * 40,
         status="completed",
         event="workflow_dispatch",
         path=".github/workflows/gds.yaml",
         html_url="https://github.com/example/project/actions/runs/123",
     )
-    jobs = {"jobs": [{"name": "gds", "run_id": 123, "conclusion": "timed_out"}]}
+    jobs = {
+        "jobs": [
+            dict(
+                id=456,
+                name="gds",
+                run_id=123,
+                run_attempt=1,
+                head_sha="a" * 40,
+                status="completed",
+                conclusion="timed_out",
+            )
+        ]
+    }
     return summary, original, jobs
 
 
@@ -88,3 +101,109 @@ def test_rejects_unqualified_fallback(local_report, corruption):
         del summary["result_summary"]["gatelevel"]
     with pytest.raises(ValueError):
         local.report(summary, original, jobs, "a" * 40)
+
+
+@pytest.fixture
+def annotated_timeout(local_report):
+    summary, original, jobs = local_report
+    jobs["jobs"][0]["conclusion"] = "cancelled"
+    check = dict(
+        id=456,
+        name="gds",
+        head_sha="a" * 40,
+        status="completed",
+        conclusion="cancelled",
+        app={"slug": "github-actions"},
+        output={"annotations_count": 2},
+    )
+    annotations = [
+        dict(
+            annotation_level="failure",
+            message="The job has exceeded the maximum execution time of 6h0m0s",
+        ),
+        dict(annotation_level="failure", message="The operation was canceled."),
+    ]
+    return summary, original, jobs, check, annotations
+
+
+def test_records_annotated_timeout_without_relabeling_cancellation(annotated_timeout):
+    summary, original, jobs, check, annotations = annotated_timeout
+    result = local.report(summary, original, jobs, "a" * 40, check, annotations)
+    assert result["original_job_conclusion"] == "cancelled"
+    assert result["original_job_id"] == 456
+    assert result["timeout_annotations"] == annotations
+    assert result["ci_reran_physical_checks"] is False
+
+
+@pytest.mark.parametrize(
+    "corruption",
+    [
+        "duplicate",
+        "job-run",
+        "job-sha",
+        "job-status",
+        "attempt",
+        "check-id",
+        "check-sha",
+        "check-name",
+        "check-status",
+        "check-conclusion",
+        "app",
+        "truncated",
+        "message",
+        "level",
+        "design-failure",
+    ],
+    ids=[
+        "duplicate-gds",
+        "different-run",
+        "different-job-source",
+        "unfinished-job",
+        "different-attempt",
+        "different-check-id",
+        "different-check-source",
+        "different-check-name",
+        "unfinished-check",
+        "successful-check",
+        "untrusted-check-app",
+        "missing-annotations",
+        "ordinary-cancellation",
+        "nonfailure-annotation",
+        "annotated-design-failure",
+    ],
+)
+def test_rejects_unbound_timeout_annotations(annotated_timeout, corruption):
+    summary, original, jobs, check, annotations = annotated_timeout
+    job = jobs["jobs"][0]
+    if corruption == "duplicate":
+        jobs["jobs"].append(job.copy())
+    elif corruption == "job-run":
+        job["run_id"] = 789
+    elif corruption == "job-sha":
+        job["head_sha"] = "b" * 40
+    elif corruption == "job-status":
+        job["status"] = "in_progress"
+    elif corruption == "attempt":
+        job["run_attempt"] = 2
+    elif corruption == "check-id":
+        check["id"] = 789
+    elif corruption == "check-sha":
+        check["head_sha"] = "b" * 40
+    elif corruption == "check-name":
+        check["name"] = "functional"
+    elif corruption == "check-status":
+        check["status"] = "in_progress"
+    elif corruption == "check-conclusion":
+        check["conclusion"] = "success"
+    elif corruption == "app":
+        check["app"]["slug"] = "untrusted"
+    elif corruption == "truncated":
+        annotations.pop()
+    elif corruption == "message":
+        annotations[0]["message"] = "The operation was canceled."
+    elif corruption == "level":
+        annotations[0]["annotation_level"] = "warning"
+    else:
+        job["conclusion"] = "failure"
+    with pytest.raises(ValueError):
+        local.report(summary, original, jobs, "a" * 40, check, annotations)

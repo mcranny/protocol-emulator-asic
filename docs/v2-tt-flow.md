@@ -113,7 +113,9 @@ repaired local layout or modify acceptance thresholds to make this gate pass.
 
 GitHub-hosted jobs have a [six-hour execution limit](https://docs.github.com/en/actions/reference/limits).
 Only a timed-out `gds` job in this exact candidate's dispatched workflow enables
-the fallback below. A cancellation or failed design check does not. Keep its
+the fallback below. An ordinary cancellation or failed design check does not.
+A `cancelled` conclusion with the bound six-hour timeout annotation described
+below is a timeout. Keep its
 run ID, job conclusions, log, source inventory, and prepared-input hashes.
 
 Use the [official local-hardening procedure](https://tinytapeout.com/guides/local-hardening/)
@@ -123,8 +125,8 @@ inside the retained container. Keep the original source checkout and evidence
 intact. Do not use `v2_fresh_route.py`, `v2_antenna_repair.py`, or
 `v2_fanout_repair.py` as the fallback.
 
-1. Verify the original run's full SHA, workflow path, and `gds: timed_out`
-   conclusion through the Actions API. Create a clean clone at that SHA and
+1. Verify the original run's full SHA, workflow path, and GDS timeout through
+   the Actions API, retaining the matching check run and its complete annotations. Create a clean clone at that SHA and
    run the complete functional gate with `--require-clean` into
    `build/qualification/functional` before input preparation.
 2. Read the environment and branch policies into
@@ -217,7 +219,11 @@ entrypoint in `record_local` mode. This is a separate reporting run, with a
 distinct run name and no functional or physical execution jobs. It takes a
 full candidate SHA and a compact JSON report.
 It requires `v2-physical` approval and verifies the original run and timed-out
-physical job through GitHub's API. The report has schema `1`, execution path
+physical job through GitHub's API. GitHub can report a six-hour timeout as
+`cancelled`; that conclusion is accepted only with the explicit six-hour timeout
+failure annotation on the matching GitHub Actions check run. Ordinary cancellations
+and design failures remain rejected. CI retains the original conclusion, check-run
+identity, and complete annotations rather than relabeling the hosted result. The report has schema `1`, execution path
 `local_tt_flow`, the exact source and dependency identities, `timed_out_run_id`,
 `bundle_location`, and three SHA-256 fields: `bundle_sha256`,
 `source_inventory_sha256`, and `prepared_inputs_sha256`. Hash each inventory's

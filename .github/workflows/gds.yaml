@@ -20,6 +20,7 @@ on:
 permissions:
   contents: read
   actions: read
+  checks: read
 concurrency:
   group: v2-physical
   cancel-in-progress: false

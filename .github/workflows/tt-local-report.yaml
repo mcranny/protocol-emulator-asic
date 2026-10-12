@@ -13,6 +13,7 @@ on:
 permissions:
   contents: read
   actions: read
+  checks: read
 jobs:
   record:
     environment: v2-physical
@@ -41,12 +42,18 @@ jobs:
           RUN_ID=$(python -c 'import json; x=json.load(open("build/tt-ci/local-summary.json"))["timed_out_run_id"]; assert type(x) is int and x > 0; print(x)')
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" > build/tt-ci/original-run.json
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs?per_page=100" > build/tt-ci/original-jobs.json
+          JOB_ID=$(python -c 'import json; jobs=[j for j in json.load(open("build/tt-ci/original-jobs.json"))["jobs"] if j["name"] == "gds"]; assert len(jobs) == 1; x=jobs[0]["id"]; assert type(x) is int and x > 0; print(x)')
+          gh api "repos/$GITHUB_REPOSITORY/check-runs/$JOB_ID" > build/tt-ci/original-check-run.json
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/check-runs/$JOB_ID/annotations?per_page=100" > build/tt-ci/annotation-pages.json
+          python -c 'import json, pathlib; pages=json.load(open("build/tt-ci/annotation-pages.json")); pathlib.Path("build/tt-ci/original-annotations.json").write_text(json.dumps([a for page in pages for a in page]))'
       - name: Record local validation without claiming a CI rerun
         run: |
           python -m tools.tt_local_report \
             --summary build/tt-ci/local-summary.json \
             --original build/tt-ci/original-run.json \
             --jobs build/tt-ci/original-jobs.json \
+            --check-run build/tt-ci/original-check-run.json \
+            --annotations build/tt-ci/original-annotations.json \
             --output build/tt-ci/recorded-local-evidence.json
           echo 'Local TT evidence recorded. This job checked report fields and the hosted timeout; it did not rerun the local physical checks.' >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
