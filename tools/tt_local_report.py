@@ -8,6 +8,7 @@ import argparse
 import json
 import os
 import re
+import subprocess
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -28,6 +29,63 @@ COUNTS = {
     "gatelevel_reset_suites": 1,
     "initialization_elaborations": 7,
 }
+
+RECOVERY_COUNTS = {key: value for key, value in COUNTS.items()
+                   if key not in {"rtl_reset_suites", "gatelevel_reset_suites",
+                                  "initialization_elaborations"}}
+
+
+def reporting_revision(candidate, revision, ref, root):
+    """Allow a reviewed descendant reporter without changing the tested source."""
+    dispatch(revision, revision, ref)
+    if not re.fullmatch(r"[0-9a-f]{40}", candidate):
+        raise ValueError("report candidate must be a full SHA")
+    head = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+    if head != revision:
+        raise ValueError("reporter checkout differs from workflow revision")
+    result = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", candidate, revision], cwd=root,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if result.returncode != 0:
+        raise ValueError("physical candidate must be an ancestor of the reporter")
+
+
+def recovery_record(summary, candidate):
+    """Require explicit failed-parent/checkpoint lineage for a recovery report."""
+    recovery = summary.get("recovery", {})
+    if (summary.get("release_acceptance") is not False
+            or recovery.get("kind") != "checkpoint_rerun"
+            or recovery.get("source_commit") != candidate
+            or recovery.get("parent_result") != "failed"
+            or recovery.get("parent_failure") != "route__drc_errors=1"
+            or recovery.get("stock_scripts_unchanged") is not True
+            or recovery.get("checkpoint_ecos") != []
+            or recovery.get("required_checks_passed") is not True):
+        raise ValueError("recovery lineage is missing or relabeled")
+    for key in ("manifest_sha256", "checkpoint_state_sha256", "parent_failure_sha256",
+                "validation_summary_sha256", "netlist_sha256", "gds_sha256"):
+        if not re.fullmatch(r"[0-9a-f]{64}", recovery.get(key, "")):
+            raise ValueError(f"missing recovery checksum: {key}")
+    expected = {
+        "OPENROAD_THREADS": {"before": None, "after": 8},
+        "DRT_SAVE_SNAPSHOTS": {"before": False, "after": True},
+        "DRT_SAVE_DRC_REPORT_ITERS": {"before": None, "after": 1},
+        "RUN_KLAYOUT_DRC": {"before": False, "after": True},
+        "KLAYOUT_DRC_THREADS": {"before": None, "after": 8},
+    }
+    if recovery.get("config_changes") != expected:
+        raise ValueError("recovery configuration differs from reviewed changes")
+    audit = summary.get("supplemental_reset_audit", {})
+    if (not re.fullmatch(r"[0-9a-f]{40}", audit.get("source_commit", ""))
+            or not re.fullmatch(r"[0-9a-f]{64}", audit.get("audit_sha256", ""))
+            or audit.get("netlist_sha256") != recovery["netlist_sha256"]
+            or type(audit.get("gatelevel_reset_suites")) is not int
+            or audit["gatelevel_reset_suites"] != 1
+            or audit.get("passed") is not True):
+        raise ValueError("supplemental reset audit identity or result differs")
+    if set(summary.get("result_summary", {})) != {*RECOVERY_COUNTS, "passed", "pytest"}:
+        raise ValueError("recovery results mix base and supplemental audit sources")
 
 
 def timeout_job(original, jobs, candidate, check_run=None, annotations=()):
@@ -73,7 +131,8 @@ def timeout_job(original, jobs, candidate, check_run=None, annotations=()):
 
 def report(summary, original, jobs, candidate, check_run=None, annotations=()):
     if (
-        summary.get("schema") != 1
+        type(summary.get("schema")) is not int
+        or summary.get("schema") not in (1, 2)
         or summary.get("execution_path") != "local_tt_flow"
         or summary.get("source_commit") != candidate
         or summary.get("dependencies") != PINS
@@ -102,12 +161,16 @@ def report(summary, original, jobs, candidate, check_run=None, annotations=()):
     ):
         raise ValueError("local bundle requires a durable HTTPS artifact location")
     result = summary.get("result_summary", {})
+    counts = COUNTS
+    if summary["schema"] == 2:
+        recovery_record(summary, candidate)
+        counts = RECOVERY_COUNTS
     if (
         result.get("passed") is not True
         or type(result.get("pytest")) is not int
         or result["pytest"] < 583
         or any(
-            type(result.get(k)) is not int or result[k] != n for k, n in COUNTS.items()
+            type(result.get(k)) is not int or result[k] != n for k, n in counts.items()
         )
     ):
         raise ValueError("local evidence summary is incomplete or failing")
@@ -122,7 +185,9 @@ def report(summary, original, jobs, candidate, check_run=None, annotations=()):
             "validated report fields",
             "verified hosted physical timeout identity",
         ],
-        status="recorded local validation; physical checks were performed locally",
+        status=("recorded checkpoint recovery; final release acceptance remains pending"
+                if summary["schema"] == 2 else
+                "recorded local validation; physical checks were performed locally"),
     )
 
 
@@ -132,7 +197,8 @@ def main():
         parser.add_argument("--" + name, type=Path, required=True)
     args = parser.parse_args()
     candidate = os.environ["CANDIDATE_SHA"]
-    dispatch(candidate, os.environ["GITHUB_SHA"], os.environ["GITHUB_REF"])
+    revision = os.environ["GITHUB_SHA"]
+    reporting_revision(candidate, revision, os.environ["GITHUB_REF"], Path.cwd())
     result = report(
         read(args.summary),
         read(args.original),
@@ -141,6 +207,7 @@ def main():
         read(args.check_run),
         read(args.annotations),
     )
+    result["reporter_commit"] = revision
     write(args.output, result)
     print(json.dumps(result, indent=2))
 

@@ -8,6 +8,10 @@ submission compatibility for a new revision. A stock-flow violation is a
 submission-level blocker; keep its failing artifacts and identify the required
 repair before proposing a separately reviewed change.
 
+The `447b3df` checkpoint recovery and its independent checks have passed;
+the [recovery record](#validated-checkpoint-recovery) describes that evidence.
+Final clean-candidate qualification remains pending.
+
 Keep 6×4 tiles, a 40 ns clock, 1.5 ns maximum transition, 0.25 ns clock
 uncertainty, and 32 capture records. The anticipated 8×4 template is deferred;
 this qualification includes no migration or re-hardening for it.
@@ -209,15 +213,62 @@ intact. Do not use `v2_fresh_route.py`, `v2_antenna_repair.py`, or
    artifact location. This archive is a stock-flow qualification bundle; the
    final release additionally needs reset/X and full-geometry evidence.
 
-The fallback procedure and report guards are prepared; a full local fallback
-run is conditional on a real hosted timeout and is not claimed by this document.
+The hosted `447b3df` job reached the six-hour timeout. Its clean local fallback
+subsequently failed on one reported routing short; the verified checkpoint
+recovery below preserves that failure and records its own results separately.
+
+## Validated checkpoint recovery
+
+Source `447b3dfd0986d473c71afa28efafb3a5cff48da7` completed a fresh-process
+recovery on 14 October 2026. The original local Classic flow failed after
+40 hours 31 minutes with one Metal4 short. The saved geometry showed a 0.280 µm
+gap at the marker, and a fresh full-design check with the same OpenROAD binary
+reported no DRC. These observations support stale in-process router state;
+they do not establish the exact upstream cause.
+
+Recovery loaded the hashed, unchanged post-antenna checkpoint and reran stock
+`OpenROAD.DetailedRouting` and every downstream check. No custom routing script,
+diode power reconnection or checkpoint fanout ECO was used. The original failure
+and its artifacts remain intact. The resolved configuration changed only:
+explicit eight-thread routing, retained DRC snapshots/reports, and enabling
+KLayout DRC with eight threads. Fixed physical constraints were unchanged.
+
+The recovered flow finished in 50 minutes 40 seconds. Routing, antenna, Magic
+DRC, KLayout DRC, LVS, timing and electrical violation counts were zero. Fresh
+fast/typical/slow timing reports have minimum setup slack 18.456291 ns and
+minimum hold slack 0.054473 ns. Independent checks subsequently passed:
+
+- Nine required stock TT prechecks.
+- All 14 V2 gate-level pin scenarios from the physical source revision.
+- Mapping audit: 70,022 cells, zero unmapped cells.
+- Full-geometry inventory: 5,813,030 expanded polygons, no omitted layers.
+- Four-state startup/reset/state-loss audit from `c1c9be5`, explicitly bound to
+  the recovered netlist rather than relabeled as original `447b3df` test code.
+- The unchanged physical checker with exact required suite identities.
+
+The GDS SHA-256 is
+`902c78fce4a69fde56dbf209b34d5c809e2d44610e6b1e790f03963bb97322c6`;
+the netlist SHA-256 is
+`d99cc8992fe8fc71a5a7dc5c0fd40f162a5f84a1e2fc9cf7a1166c069bda1a84`.
+Gate-level simulation uses functional cell models without SDF; timing is
+established separately by extracted all-corner STA.
+
+This establishes passing recovered-layout checks without the historical custom
+repairs. It does not establish a successful uninterrupted stock invocation from
+RTL, final revision acceptance, or competition acceptance. The local manifest
+retains `execution_path: local_tt_flow_checkpoint_rerun`. A reporting envelope
+may use `local_tt_flow` only with the mandatory nested recovery record below.
 
 ## Record local evidence in CI
 
 `tt-local-report.yaml` is a reusable workflow called by the existing `gds.yaml`
 entrypoint in `record_local` mode. This is a separate reporting run, with a
 distinct run name and no functional or physical execution jobs. It takes a
-full candidate SHA and a compact JSON report.
+full tested candidate SHA and a compact JSON report. The approved reporter runs
+from the selected workflow revision, records that revision separately, and
+requires the tested candidate to be its ancestor. It checks out full Git history
+and verifies the reporter checkout and approval settings before reading the
+report. Qualification mode still requires candidate SHA equal to workflow SHA.
 It requires `v2-physical` approval and verifies the original run and timed-out
 physical job through GitHub's API. GitHub can report a six-hour timeout as
 `cancelled`; that conclusion is accepted only with the explicit six-hour timeout
@@ -248,8 +299,18 @@ in `qualification.json`. Both paths remain subject to the same physical
 requirements. Re-query the CMOS5L action branch immediately before the final
 candidate freeze; review any update and rerun functional and physical gates.
 
+Schema `2` records this reviewed checkpoint recovery without claiming final
+release acceptance. It requires `release_acceptance: false`, the original
+physical-source functional counts, and a separate supplemental reset-audit
+source/hash/netlist identity. Its `recovery` object records `kind:
+checkpoint_rerun`, source, failed parent result and failure, checkpoint and
+manifest hashes, exact configuration changes, unchanged stock scripts, no ECOs,
+validation-summary hash, and GDS/netlist hashes. Missing evidence, altered
+configuration, failed checks, or mixed-source counts are rejected. Schema `1`
+retains the existing complete same-source result requirements.
+
 Dispatch the report through the existing workflow, which is already registered
-on the default branch, using the candidate branch's workflow revision:
+on the default branch, using the reviewed reporter revision on an eligible branch:
 
 ```sh
 gh workflow run gds.yaml --ref v2-current \

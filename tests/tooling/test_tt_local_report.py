@@ -1,5 +1,7 @@
 """Local fallback reporting distinguishes a timeout from a physical failure."""
 
+import subprocess
+
 import pytest
 
 from tools import tt_local_report as local
@@ -207,3 +209,112 @@ def test_rejects_unbound_timeout_annotations(annotated_timeout, corruption):
         job["conclusion"] = "failure"
     with pytest.raises(ValueError):
         local.report(summary, original, jobs, "a" * 40, check, annotations)
+
+
+@pytest.fixture
+def recovery_report(local_report):
+    summary, original, jobs = local_report
+    summary.update(
+        schema=2, release_acceptance=False,
+        result_summary=dict(local.RECOVERY_COUNTS, passed=True, pytest=631),
+        recovery=dict(
+            kind="checkpoint_rerun", source_commit="a" * 40,
+            parent_result="failed", parent_failure="route__drc_errors=1",
+            stock_scripts_unchanged=True, checkpoint_ecos=[],
+            required_checks_passed=True, manifest_sha256="e" * 64,
+            checkpoint_state_sha256="f" * 64, parent_failure_sha256="1" * 64,
+            validation_summary_sha256="2" * 64, netlist_sha256="3" * 64,
+            gds_sha256="4" * 64,
+            config_changes={
+                "OPENROAD_THREADS": {"before": None, "after": 8},
+                "DRT_SAVE_SNAPSHOTS": {"before": False, "after": True},
+                "DRT_SAVE_DRC_REPORT_ITERS": {"before": None, "after": 1},
+                "RUN_KLAYOUT_DRC": {"before": False, "after": True},
+                "KLAYOUT_DRC_THREADS": {"before": None, "after": 8},
+            },
+        ),
+        supplemental_reset_audit=dict(
+            source_commit="b" * 40, audit_sha256="5" * 64,
+            netlist_sha256="3" * 64, gatelevel_reset_suites=1, passed=True),
+    )
+    return summary, original, jobs
+
+
+def test_records_recovery_without_transferring_source_or_release_acceptance(recovery_report):
+    result = local.report(*recovery_report, "a" * 40)
+    assert result["source_commit"] == "a" * 40
+    assert result["supplemental_reset_audit"]["source_commit"] == "b" * 40
+    assert result["recovery"]["parent_result"] == "failed"
+    assert result["release_acceptance"] is False
+    assert result["ci_reran_physical_checks"] is False
+    assert "final release acceptance remains pending" in result["status"]
+
+
+@pytest.mark.parametrize("corruption", [
+    "acceptance", "kind", "source", "parent", "failure", "script", "eco",
+    "checks", "checkpoint-hash", "parent-hash", "configuration", "audit-source",
+    "audit-hash", "audit-netlist", "audit-count", "audit-result", "mixed-counts",
+    "physical-violations", "missing-pin-suite", "boolean-schema",
+], ids=lambda value: value)
+def test_rejects_incomplete_or_relabeled_recovery(recovery_report, corruption):
+    summary, original, jobs = recovery_report
+    recovery = summary["recovery"]
+    audit = summary["supplemental_reset_audit"]
+    if corruption == "acceptance": summary["release_acceptance"] = True
+    elif corruption == "kind": recovery["kind"] = "clean_rtl"
+    elif corruption == "source": recovery["source_commit"] = "b" * 40
+    elif corruption == "parent": recovery["parent_result"] = "passed"
+    elif corruption == "failure": del recovery["parent_failure"]
+    elif corruption == "script": recovery["stock_scripts_unchanged"] = False
+    elif corruption == "eco": recovery["checkpoint_ecos"] = ["remove diode"]
+    elif corruption == "checks": recovery["required_checks_passed"] = False
+    elif corruption == "checkpoint-hash": del recovery["checkpoint_state_sha256"]
+    elif corruption == "parent-hash": recovery["parent_failure_sha256"] = "unknown"
+    elif corruption == "configuration": recovery["config_changes"]["CLOCK_PERIOD"] = {"before": 40, "after": 80}
+    elif corruption == "audit-source": audit["source_commit"] = "short"
+    elif corruption == "audit-hash": del audit["audit_sha256"]
+    elif corruption == "audit-netlist": audit["netlist_sha256"] = "f" * 64
+    elif corruption == "audit-count": audit["gatelevel_reset_suites"] = True
+    elif corruption == "audit-result": audit["passed"] = False
+    elif corruption == "mixed-counts": summary["result_summary"]["rtl_reset_suites"] = 2
+    elif corruption == "physical-violations": summary["result_summary"]["required_violations"] = 1
+    elif corruption == "missing-pin-suite": del summary["result_summary"]["gatelevel"]
+    else: summary["schema"] = True
+    with pytest.raises(ValueError):
+        local.report(summary, original, jobs, "a" * 40)
+
+
+@pytest.fixture
+def reporting_repo(tmp_path):
+    def git(*args):
+        return subprocess.check_output(
+            ["git", "-c", "user.name=Test", "-c", "user.email=test@example.test", *args],
+            cwd=tmp_path, text=True, stderr=subprocess.DEVNULL).strip()
+    git("init")
+    git("commit", "--allow-empty", "-m", "Candidate")
+    candidate = git("rev-parse", "HEAD")
+    git("commit", "--allow-empty", "-m", "Reporter")
+    reporter = git("rev-parse", "HEAD")
+    return tmp_path, candidate, reporter
+
+
+def test_reports_ancestor_candidate_from_exact_reporter_checkout(reporting_repo):
+    root, candidate, reporter = reporting_repo
+    local.reporting_revision(candidate, reporter, "refs/heads/v2-current", root)
+    local.reporting_revision(reporter, reporter, "refs/heads/main", root)
+    # Qualification retains the stronger same-revision requirement.
+    with pytest.raises(ValueError):
+        local.dispatch(candidate, reporter, "refs/heads/v2-current")
+
+
+@pytest.mark.parametrize("corruption", ["unknown", "short", "checkout", "ref"],
+                         ids=["unknown-candidate", "short-sha", "wrong-checkout", "ineligible-ref"])
+def test_rejects_unbound_reporter_revision(reporting_repo, corruption):
+    root, candidate, reporter = reporting_repo
+    ref = "refs/heads/v2-current"
+    if corruption == "unknown": candidate = "a" * 40
+    elif corruption == "short": candidate = candidate[:7]
+    elif corruption == "checkout": reporter = candidate
+    else: ref = "refs/heads/other"
+    with pytest.raises(ValueError):
+        local.reporting_revision(candidate, reporter, ref, root)

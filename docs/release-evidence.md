@@ -20,10 +20,11 @@ reconnection and guarded fanout repair from operations performed by stock TT.
 | --- | --- |
 | Frozen baseline/migration | `3d5210adf0edc53b635738850861f639996f2d4a`: 583 pytest cases, 24 RTL scenarios, five proofs and six mutations; no deprecated cases removed |
 | Published functional candidate | `447b3dfd0986d473c71afa28efafb3a5cff48da7`: 631 pytest cases and complete pre-reset-audit gate, locally and in hosted CI |
+| Latest published functional gate | `c1c9be573005a022346c2eca6d425f17f815a69e`: 667 pytest cases, all original RTL scenarios, both RTL reset scenarios, seven initialization elaborations, five induction proofs and six detected mutations |
 | Stock V2 qualification | [Run 38155699349](https://github.com/mcranny/protocol-emulator-asic/actions/runs/38155699349), source 447b3df; consult retained final result before making a physical-pass claim |
 | Manual TT run | [Run 38115576757](https://github.com/mcranny/protocol-emulator-asic/actions/runs/38115576757), source 3d5210a, produced the V1 top; it does not qualify V2 |
 | Historical local acceptance | `af573c5fef6f96b4c2fbd400e6565b3b41f54aef`; [immutable evidence index](https://github.com/mcranny/protocol-emulator-asic/blob/447b3dfd0986d473c71afa28efafb3a5cff48da7/evidence/v2-local-af573c5/README.md) retains its original source identity |
-| Reset/formal development | Expanded local gate includes 651 pytest cases, two additional RTL reset scenarios and seven initialization elaborations; final V2 netlist audit remains required |
+| Checkpoint recovery | Physical source `447b3df`: recovery completed with zero required physical violations; nine stock prechecks, all 14 V2 gate-level pin scenarios, independent mapping and full-geometry checks passed. Supplemental reset audit from `c1c9be5` also passed on that netlist. See [recovery scope and provenance](v2-tt-flow.md#validated-checkpoint-recovery). This is not final same-revision release acceptance. |
 
 Executable migration measurements preserve the same production executed lines
 and branch arcs: 2948/4745 lines and 1197/1912 branches at the Step 1 checkpoint.

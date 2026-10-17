@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       candidate_sha:
-        description: Full candidate SHA; must equal the selected workflow revision
+        description: Full tested SHA; qualification requires the workflow SHA, reporting also permits an ancestor
         required: true
         type: string
       mode:
@@ -37,9 +37,12 @@ jobs:
         shell: bash
         run: |
           [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
-          [[ "$CANDIDATE_SHA" == "$GITHUB_SHA" ]]
           [[ "$GITHUB_REF" == refs/heads/v2-current || "$GITHUB_REF" == refs/heads/main ]]
-          case "$MODE" in qualify|record_local) ;; *) exit 1 ;; esac
+          case "$MODE" in
+            qualify) [[ "$CANDIDATE_SHA" == "$GITHUB_SHA" ]] ;;
+            record_local) ;; # The approved reporter verifies ancestry and the original run.
+            *) exit 1 ;;
+          esac
   functional:
     needs: candidate
     if: inputs.mode == 'qualify'
