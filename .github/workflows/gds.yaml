@@ -79,6 +79,14 @@ jobs:
           name: v2-tt-functional
           path: build/tt-functional
           if-no-files-found: error
+          include-hidden-files: true
+      - name: Download the uploaded functional evidence
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: v2-tt-functional
+          path: build/tt-functional-downloaded
+      - name: Verify transported evidence before physical execution
+        run: python -m tools.tt_qualification functional --directory build/tt-functional-downloaded
   gds:
     needs: functional
     environment: v2-physical
@@ -123,6 +131,7 @@ jobs:
           name: v2-tt-physical
           path: build/tt-ci
           if-no-files-found: error
+          include-hidden-files: true
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: failure() || cancelled()
         with:
@@ -234,6 +243,7 @@ jobs:
           name: v2-tt-qualification
           path: build/qualification
           if-no-files-found: error
+          include-hidden-files: true
   record_local:
     needs: candidate
     if: inputs.mode == 'record_local'

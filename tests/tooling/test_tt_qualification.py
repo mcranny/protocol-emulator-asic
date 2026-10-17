@@ -119,7 +119,12 @@ def make_qualification(tmp_path):
         config.update(DESIGN_NAME=tt.TOP, CLOCK_UNCERTAINTY_CONSTRAINT=0.25)
         source = root / "functional/source"
         inputs = {}
-        for name in check_v2.REQUIRED_INPUTS:
+        for name in (
+            *check_v2.REQUIRED_INPUTS,
+            ".devcontainer/Dockerfile",
+            ".github/workflows/gds.yaml",
+            ".gitignore",
+        ):
             path = source / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(name)
@@ -244,6 +249,23 @@ def test_stock_results_require_all_existing_acceptance_checks(make_qualification
     assert result["passing_tests"] == {"precheck": 9, "gatelevel": 14}
     assert result["python_tests"] == 583
     assert result["execution_path"] == "github_actions"
+
+
+@pytest.mark.parametrize(
+    "missing_input",
+    [".devcontainer/Dockerfile", ".github/workflows/gds.yaml", ".gitignore"],
+    ids=["hidden-directory", "nested-hidden-directory", "hidden-file"],
+)
+def test_functional_evidence_rejects_omitted_hidden_sources(
+    make_qualification, missing_input
+):
+    root = make_qualification()
+    directory = root / "functional"
+    origin = tt.read(root / "physical/stage.json")
+    tt.functional(directory, origin)
+    (directory / "source" / missing_input).unlink()
+    with pytest.raises(ValueError, match="invalid or missing evidence file"):
+        tt.functional(directory, origin)
 
 
 @pytest.mark.parametrize(
