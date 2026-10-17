@@ -2,7 +2,8 @@
 
 This document describes the implementation on the V2 development branch. It
 does not establish a V2 release, physical acceptance, or hardware operation.
-The released V1 top, pinout, configuration and `v1.0.0` artifacts remain intact.
+V2 is the default ASIC top. V1 RTL, explicit regression targets, configuration
+under `physical/v1`, and historical `v1.0.0` artifacts remain available.
 The integration candidate is `tt_um_mcranny_protocol_emulator_v2`.
 
 ## Architecture
@@ -222,9 +223,8 @@ caller to schedule service; it makes no real-time Linux guarantee.
 The archived source passed local physical/precheck/gate-level acceptance.
 Further tests and formal verification continue on the open development PR.
 Changed revisions require fresh evidence. Functional additions and their checks are described in
-[v2-validation.md](v2-validation.md). The candidate top is not
-selected by `info.yaml`, and existing V1 acceptance must not be presented as V2
-acceptance.
+[v2-validation.md](v2-validation.md). The V2 top is selected by `info.yaml`; existing V1 acceptance does not establish
+V2 acceptance.
 
 ## Reproducing physical feasibility
 
@@ -234,7 +234,8 @@ directory to the pinned runner described in `docs/local-build.md` using
 `--source build/v2-candidate-01`. Preparation refuses to overwrite an existing
 directory and records input hashes, including firmware, verification and flow
 configuration. The runner preserves that manifest with the route evidence.
-The release `info.yaml` and physical configuration are not replaced.
+Preparation does not modify the source checkout. The root configuration already
+contains V2 defaults; the isolated copy records the exact execution inputs.
 
 `physical/v2/overrides.json` configures 100 um clock-buffer
 spacing, automatic global-route repair wire length, 1000 um placement displacement

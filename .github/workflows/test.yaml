@@ -20,9 +20,9 @@ jobs:
       - name: Engine differential simulation
         run: make -C test -f Makefile.core
       - name: Formal safety
-        run: make formal
+        run: make v1-formal
       - name: RTL simulation
-        run: make -C test
+        run: make -C test -f Makefile.v1pins
       - name: Record evidence provenance
         if: always()
         run: python tools/collect_evidence.py --kind rtl --output build/rtl-evidence.json

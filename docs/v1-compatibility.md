@@ -8,8 +8,12 @@ The version query distinguishes V1 `0x010140` from V2 `0x020240`.
 Use `protocol_emulator.v2.host.connect(transport)` to select the matching host
 backend. V1 clients are not promised binary host compatibility with V2. The
 installed CLI remains V1; use [the V2 Python toolchain](assembler-toolchain.md)
-for the new firmware. Promotion of ASIC build defaults will not change CLI or
-Python API behavior.
+for the new firmware. V2 ASIC build defaults do not change CLI or Python API protocol selection.
+The package/runtime version is `2.0.0rc1`; protocol version queries are unchanged.
+
+Use `make v1-test`, `make v1-lint`, `make v1-synth` and `make v1-formal` for
+explicit V1 checks. Pin simulation uses `make -C test -f Makefile.v1pins`.
+V1 metadata and its prior physical configuration are retained in `physical/v1`.
 
 The full functional runner always includes both V1 and V2. Existing V1 core
 and pin cases remain required, alongside both tops' lint/synthesis and the V1

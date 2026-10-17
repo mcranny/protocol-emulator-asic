@@ -30,6 +30,11 @@ exercise the cycle model; RTL pin tests separately exercise the SPI host interfa
 The existing `protocol-emulator` CLI remains V1. V2 assembly, decoding and loading
 use the [Python toolchain](docs/assembler-toolchain.md).
 
+The package version is `2.0.0rc1`. Root Tiny Tapeout metadata and default
+`make test`, `make lint`, `make synth`, `make formal`, and `make -C test`
+entrypoints select V2. Use `make v1-test` for explicit V1 regression.
+[RC notes](docs/release-notes.md) describe compatibility and the remaining qualification gate.
+
 ## Verify and build documentation
 
 Install Icarus Verilog, Verilator and Yosys, then:

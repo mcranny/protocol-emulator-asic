@@ -31,6 +31,7 @@ verification
 formal-proofs
 v2-tt-flow
 release-evidence
+release-notes
 verification-track-2
 v2-validation
 ```

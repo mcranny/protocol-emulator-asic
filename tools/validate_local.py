@@ -82,7 +82,7 @@ def validate(destination, require_clean=False):
                                      f'read_verilog src/*.v; synth -top {top}; stat'])
         for name, makefile, suites in (
             ('v1-core', 'Makefile.core', {'test_differential_directed', 'test_differential_random', 'test_differential_uart'}),
-            ('v1-pins', 'Makefile', {'test_host_protocol_and_safety', 'test_uart_firmware_acceptance', 'test_host_phase_and_interrupted_uart'}),
+            ('v1-pins', 'Makefile.v1pins', {'test_host_protocol_and_safety', 'test_uart_firmware_acceptance', 'test_host_phase_and_interrupted_uart'}),
             ('v2-core', 'Makefile.v2', CORE_SUITES),
             ('v2-pins', 'Makefile.v2pins', PIN_SUITES),
             ('capture', 'Makefile.v2capture', {'test_v2_capture_differential'})):

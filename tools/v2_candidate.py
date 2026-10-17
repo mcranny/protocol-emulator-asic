@@ -1,4 +1,4 @@
-"""Prepare an isolated V2 physical-flow input without replacing the V1 release.
+"""Prepare isolated V2 physical-flow inputs with recorded source provenance.
 
 The destination must not exist. Pass it to tools/local_flow.py --source.
 This records development inputs; it does not establish release acceptance.
