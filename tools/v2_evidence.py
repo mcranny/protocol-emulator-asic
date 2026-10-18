@@ -62,20 +62,55 @@ def record(destination, kind, artifacts, command, gds=None, netlist=None):
         save()
 
 
+def continuation_inputs(physical, identity):
+    """Verify a clean, hash-bound checkpoint continuation before bundling it."""
+    manifest = read(physical / 'manifest.json')
+    status = read(physical / 'route-status.json')
+    if identity['source_dirty'] or any(manifest.get(k) != v for k, v in identity.items()):
+        raise ValueError('physical continuation differs from clean functional source')
+    if status.get('phase') != 'finished' or status.get('passed') is not True or status.get('issues'):
+        raise ValueError('physical continuation is incomplete or failed')
+    verify_files(physical, manifest['prepared_sha256'])
+    inventory = read(physical / 'physical-artifacts.json')
+    verify_files(physical, inventory)
+    for name, digest in manifest['prepared_sha256'].items():
+        source = name if name.startswith('src/') else 'tools/' + name
+        if source in identity['inputs'] and identity['inputs'][source] != digest:
+            raise ValueError(f'physical prepared source mismatch: {source}')
+    final = physical / 'runs/signoff/final'
+    metrics = read(physical / 'acceptance-metrics.json')
+    raw = read(final / 'metrics.json')
+    audit = read(physical / 'mapping-audit.json')
+    provenance = read(physical / 'metrics-provenance.json')
+    if (provenance.get('raw_metrics_sha256') != checksum(final / 'metrics.json')
+            or provenance.get('mapping_audit_sha256') != checksum(physical / 'mapping-audit.json')
+            or audit.get('passed') is not True or audit.get('unmapped_count') != 0
+            or audit.get('netlist_sha256') != checksum(final / 'nl/tt_um_mcranny_protocol_emulator_v2.nl.v')
+            or metrics != dict(raw, design__instance_unmapped__count=audit['unmapped_count'])):
+        raise ValueError('physical metric derivation is missing or changed')
+    return final, physical / 'acceptance-metrics.json', physical / 'runs/signoff/resolved.json'
+
+
 def assemble(destination, functional, physical, stages):
     function = read(functional / 'stage.json')
-    candidate = read(physical / 'candidate-inputs.json')
-    build = read(physical / 'local-evidence.json')
     identity = {key: function[key] for key in ('source_commit', 'source_dirty', 'inputs')}
     if identity['source_dirty'] or function.get('exit_code') != 0:
         raise ValueError('functional evidence is dirty or failed')
-    if any(candidate.get(key) != value for key, value in identity.items()):
-        raise ValueError('physical candidate differs from the functional source')
-    if (build.get('source_commit') != identity['source_commit'] or build.get('source_dirty') is not False
-            or build.get('exit_code') != 0 or build.get('stage') != 'full'):
-        raise ValueError('physical build is incomplete, stale or dirty')
-    verify_files(physical, build['files'])
-    verify_files(physical, candidate['prepared'])
+    continuation = (physical / 'physical-artifacts.json').is_file()
+    if continuation:
+        final, metric_path, config_path = continuation_inputs(physical, identity)
+    else:
+        candidate = read(physical / 'candidate-inputs.json')
+        build = read(physical / 'local-evidence.json')
+        if any(candidate.get(key) != value for key, value in identity.items()):
+            raise ValueError('physical candidate differs from the functional source')
+        if (build.get('source_commit') != identity['source_commit'] or build.get('source_dirty') is not False
+                or build.get('exit_code') != 0 or build.get('stage') != 'full'):
+            raise ValueError('physical build is incomplete, stale or dirty')
+        verify_files(physical, build['files'])
+        verify_files(physical, candidate['prepared'])
+        final = physical / 'src/runs/local/final'
+        metric_path, config_path = final / 'metrics.json', final.parent / 'resolved.json'
     verify_files(functional / 'source', identity['inputs'])
     verify_files(functional / 'artifacts', function['artifacts'])
     destination.mkdir(parents=True, exist_ok=False)
@@ -84,12 +119,17 @@ def assemble(destination, functional, physical, stages):
     shutil.copytree(functional / 'artifacts', root)
     records = {'functional': function, 'physical': dict(identity, exit_code=0)}
     # Record the pinned tool/PDK manifests alongside the source and reports.
-    shutil.copy2(physical / 'local-evidence.json', root / 'physical-build.json')
-    shutil.copy2(physical / 'candidate-inputs.json', root / 'physical-inputs.json')
-    final = physical / 'src/runs/local/final'
+    if continuation:
+        for name in ('manifest.json', 'predecessor.json', 'physical-artifacts.json',
+                     'electrical-gate.json', 'diode-connectivity.json', 'mapping-audit.json',
+                     'metrics-provenance.json', 'route-status.json'):
+            shutil.copy2(physical / name, root / ('physical-' + name))
+    else:
+        shutil.copy2(physical / 'local-evidence.json', root / 'physical-build.json')
+        shutil.copy2(physical / 'candidate-inputs.json', root / 'physical-inputs.json')
     top = 'tt_um_mcranny_protocol_emulator_v2'
-    for name, path in {'metrics.json': final / 'metrics.json',
-                       'config.json': final.parent / 'resolved.json',
+    for name, path in {'metrics.json': metric_path,
+                       'config.json': config_path,
                        'netlist.v': final / 'nl' / (top + '.nl.v'),
                        'layout.gds': final / 'gds' / (top + '.gds')}.items():
         shutil.copy2(path, root / name)

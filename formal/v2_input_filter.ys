@@ -1,3 +1,10 @@
+# Proof: F-V2-FILTER
+# Top: protocol_input_filter_v2
+# Assumptions: Initial sampled reset; arbitrary synchronized samples.
+# Properties: Three-sample qualification and rejection of disagreeing samples.
+# Method: temporal induction; bounded success alone is insufficient.
+# Scope and abstractions: formal/README.md.
+
 read_verilog -formal src/v2_input_filter.v
 prep -top protocol_input_filter_v2
 flatten

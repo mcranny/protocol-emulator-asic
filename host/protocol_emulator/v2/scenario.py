@@ -32,7 +32,7 @@ def _integer(value, lower, upper, field):
 
 
 def validate(scenario, *, require_expected=True):
-    """Validate the supported contract before simulation or file export."""
+    """Validate the supported scenario format before simulation or file export."""
     try:
         if (scenario["schema"] != "protocol-emulator-scenario" or scenario["version"] != 1
                 or scenario["host_version"] != 2 or scenario["isa_version"] != 2

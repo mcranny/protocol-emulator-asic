@@ -24,14 +24,16 @@ ROOT = Path(__file__).resolve().parents[1]
 def selected_case(path, name):
     """Validate a filtered cocotb report, retaining its one executed test.
 
-    Cocotb also reports the other collected tests as skipped. Those entries
-    must be exactly the other known suites; each is required to execute in its
-    own process before the final result can be written.
+    Cocotb versions either emit just the filtered test or include every other
+    collected test as skipped. Accept only those two exact shapes. Every known
+    suite must execute in its own process before writing the merged result.
     """
     root = ET.parse(path).getroot()
     cases = list(root.iter('testcase'))
     names = [case.get('name') for case in cases]
-    if set(names) != PIN_SUITES or len(names) != len(PIN_SUITES):
+    selected_only = names == [name] and name in PIN_SUITES
+    complete_collection = set(names) == PIN_SUITES and len(names) == len(PIN_SUITES)
+    if not (selected_only or complete_collection):
         raise ValueError(f'missing, duplicate or unexpected collected suites: {path}')
     if any(list(root.iter(tag)) for tag in ('failure', 'error')):
         raise ValueError(f'failed or errored shard: {path}')

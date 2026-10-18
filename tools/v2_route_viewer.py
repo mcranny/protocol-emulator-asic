@@ -3,6 +3,7 @@ import argparse
 from functools import partial
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import re
 from pathlib import Path
 import subprocess
 import threading
@@ -14,6 +15,15 @@ except ImportError:
     from v2_route_monitor import iterations, stalled
 
 PAGE = Path(__file__).resolve().parents[1] / "physical/v2/closure/observer.html"
+
+
+def antenna_progress(log, baseline):
+    checks = list(re.finditer(r'Found (\d+) net violations\.', log))
+    insertions = list(re.finditer(r'Inserted (\d+) diodes\.', log))
+    return dict(baseline_nets=baseline,
+                last_checked_nets=int(checks[-1][1]) if checks else None,
+                inserted_diodes=sum(int(m[1]) for m in insertions),
+                check_pending=bool(insertions) and (not checks or insertions[-1].start() > checks[-1].start()))
 
 
 def read_json(path, default=None):
@@ -60,8 +70,10 @@ def snapshot(root, docker_state, now=None):
     resource = history[-1] if history else {}
     resource_age = max(0, now - resource["unix_time"]) if resource else None
     flow = root / "flow.log"
+    flow_text = ""
     try:
-        progress = iterations(flow.read_text())
+        flow_text = flow.read_text()
+        progress = iterations(flow_text)
         log_age = max(0, now - flow.stat().st_mtime)
     except OSError:
         progress = {"completed": [], "current": None}
@@ -88,6 +100,8 @@ def snapshot(root, docker_state, now=None):
             "routing_search": manifest.get("routing_search", {"seed": 42, "swaps_per_net": 0}),
             "repair_mode": manifest.get("repair_mode"),
             "baseline_violations": manifest.get("baseline_violations"),
+            "antenna": antenna_progress(flow_text, manifest.get("baseline_antenna_nets"))
+                if manifest.get("antenna_checkpoint") else None,
             "docker": docker_state, "status": status, "observer": observer_status,
             "observer_age_seconds": observer_age,
             "observer_stale": bool(observers) and (observer_age is None or observer_age > 90),

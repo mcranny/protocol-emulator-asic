@@ -1,0 +1,3 @@
+include LICENSE README.md requirements-docs.txt
+recursive-include examples *.asm *.py *.md
+recursive-include docs *.md *.py

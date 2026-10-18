@@ -1,98 +1,253 @@
-name: gds
-# Full physical acceptance is explicitly dispatched after local optimization.
-# It remains mandatory before a V1 release; routine/doc pushes run test and docs.
+name: V2 stock TT qualification
+run-name: "${{ inputs.mode == 'record_local' && 'Record local TT evidence' || 'Qualify stock TT candidate' }} ${{ inputs.candidate_sha }}"
 on:
   workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: Full tested SHA; qualification requires the workflow SHA, reporting also permits an ancestor
+        required: true
+        type: string
+      mode:
+        description: Qualify stock TT inputs or record already validated local timeout-fallback evidence
+        required: true
+        type: choice
+        default: qualify
+        options: [qualify, record_local]
+      report_json:
+        description: Reviewed local evidence summary; required only in record_local mode
+        type: string
+        required: false
+permissions:
+  contents: read
+  actions: read
+  checks: read
+concurrency:
+  group: v2-physical
+  cancel-in-progress: false
+env:
+  CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+  LIBRELANE_IMAGE_OVERRIDE: ghcr.io/librelane/librelane@sha256:d109140b8f17fc54f4fca998beb8124f4949404ec52e339eebd2250854a18b5a
 jobs:
-  functional:
-    uses: ./.github/workflows/test.yaml
-  gds:
+  candidate:
     runs-on: ubuntu-24.04
     steps:
+      - name: Require an exact eligible candidate and a recognized operation
+        env:
+          MODE: ${{ inputs.mode }}
+        shell: bash
+        run: |
+          [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$GITHUB_REF" == refs/heads/v2-current || "$GITHUB_REF" == refs/heads/main ]]
+          case "$MODE" in
+            qualify) [[ "$CANDIDATE_SHA" == "$GITHUB_SHA" ]] ;;
+            record_local) ;; # The approved reporter verifies ancestry and the original run.
+            *) exit 1 ;;
+          esac
+  functional:
+    needs: candidate
+    if: inputs.mode == 'qualify'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
-      - name: Build GDS
+        with:
+          ref: ${{ inputs.candidate_sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.11'
+      - name: Verify candidate and approval configuration
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p build/tt-ci
+          gh api "repos/$GITHUB_REPOSITORY/environments/v2-physical" > build/tt-ci/environment.json
+          gh api "repos/$GITHUB_REPOSITORY/environments/v2-physical/deployment-branch-policies" > build/tt-ci/branches.json
+          python -m tools.tt_qualification guard
+      - name: Install functional tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y iverilog verilator yosys
+          pip install -r test/requirements.txt
+      - name: Complete clean-source functional gate
+        run: |
+          python tools/validate_local.py --require-clean --output build/tt-functional
+          python -m tools.tt_qualification functional --directory build/tt-functional
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: v2-tt-functional
+          path: build/tt-functional
+          if-no-files-found: error
+          include-hidden-files: true
+      - name: Download the uploaded functional evidence
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: v2-tt-functional
+          path: build/tt-functional-downloaded
+      - name: Verify transported evidence before physical execution
+        run: python -m tools.tt_qualification functional --directory build/tt-functional-downloaded
+  gds:
+    needs: functional
+    environment: v2-physical
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ inputs.candidate_sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.11'
+      - name: Verify candidate and approval configuration
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p build/tt-ci
+          gh api "repos/$GITHUB_REPOSITORY/environments/v2-physical" > build/tt-ci/environment.json
+          gh api "repos/$GITHUB_REPOSITORY/environments/v2-physical/deployment-branch-policies" > build/tt-ci/branches.json
+          python -m tools.tt_qualification guard
+      - name: Record isolated V2 input preparation
+        run: python -m tools.tt_qualification prepare
+      - name: Stock CMOS5L flow from RTL
         uses: TinyTapeout/tt-gds-action@3412659307918422f3f0727917cf9b499aaca588
         with:
           pdk: ihp-sg13cmos5l
           tools-ref: f6bf5c587fba4a4a8abd4c0a03234fccfbf6e61e
           librelane-version: 3.1.0.dev3
+      - name: Independently measure final netlist mapping
+        run: |
+          docker run --name "tt-mapping-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --network none \
+            -v "$PWD:/work" -v "$PDK_ROOT:/pdk:ro" -w /work "$LIBRELANE_IMAGE_OVERRIDE" \
+            python tools/v2_mapped_audit.py \
+            /work/tt_submission/tt_um_mcranny_protocol_emulator_v2.v \
+            /work/build/tt-ci/mapping.json
+      - name: Bind physical outputs to original and prepared inputs
+        run: python -m tools.tt_qualification physical
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: v2-tt-physical
+          path: build/tt-ci
+          if-no-files-found: error
+          include-hidden-files: true
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: failure() || cancelled()
+        with:
+          name: v2-tt-failed-flow
+          path: |
+            runs/wokwi
+            src/config_merged.json
+          if-no-files-found: warn
   precheck:
     needs: gds
     runs-on: ubuntu-24.04
+    timeout-minutes: 360
     steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ inputs.candidate_sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.11'
+      - name: Verify candidate and approval configuration
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p build/tt-ci
+          gh api "repos/$GITHUB_REPOSITORY/environments/v2-physical" > build/tt-ci/environment.json
+          gh api "repos/$GITHUB_REPOSITORY/environments/v2-physical/deployment-branch-policies" > build/tt-ci/branches.json
+          python -m tools.tt_qualification guard
       - uses: TinyTapeout/tt-gds-action/precheck@3412659307918422f3f0727917cf9b499aaca588
         with:
           tools-ref: f6bf5c587fba4a4a8abd4c0a03234fccfbf6e61e
-  gl_test:
-    needs: gds
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
-      - uses: TinyTapeout/tt-gds-action/gl_test@3412659307918422f3f0727917cf9b499aaca588
-      - name: Record gate-level provenance
-        if: always()
-        run: python tools/collect_evidence.py --kind gatelevel --output build/gatelevel-evidence.json
+      - name: Verify all required prechecks and layout identity
+        run: python -m tools.tt_qualification precheck
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:
-          name: gatelevel-evidence
-          path: build/gatelevel-evidence.json
-  viewer:
-    if: vars.ENABLE_GDS_VIEWER == 'true' && github.ref == 'refs/heads/main'
+          name: v2-tt-precheck
+          path: build/tt-ci
+          if-no-files-found: error
+  gatelevel:
     needs: gds
     runs-on: ubuntu-24.04
-    permissions:
-      pages: write
-      id-token: write
-    steps:
-      - uses: TinyTapeout/tt-gds-action/viewer@3412659307918422f3f0727917cf9b499aaca588
-
-  acceptance:
-    needs: [functional, gds, precheck, gl_test]
-    runs-on: ubuntu-24.04
+    timeout-minutes: 360
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
         with:
-          name: GDS_logs
-          path: evidence/GDS_logs
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+          ref: ${{ inputs.candidate_sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with:
-          name: precheck_reports
-          path: evidence/precheck_reports
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
-        with:
-          name: gatelevel_test_results
-          path: evidence/gatelevel_test_results
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
-        with:
-          name: tt_submission
-          path: evidence/submission
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
-        with:
-          name: test-results
-          path: evidence/functional
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
-        with:
-          name: gatelevel-evidence
-          path: evidence/gatelevel-evidence
-      - name: Verify physical evidence
-        shell: bash
+          python-version: '3.11'
+      - name: Verify candidate and approval configuration
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          python tools/check_physical.py \
-            --metrics evidence/GDS_logs/runs/wokwi/final/metrics.json \
-            --config evidence/GDS_logs/runs/wokwi/resolved.json \
-            --precheck evidence/precheck_reports/results.xml \
-            --gatelevel evidence/gatelevel_test_results/results.xml \
-            --source-commit "$GITHUB_SHA" \
-            --submission evidence/submission/tt_submission/commit_id.json \
-            --rtl-manifest evidence/functional/build/rtl-evidence.json \
-            --gatelevel-manifest evidence/gatelevel-evidence/gatelevel-evidence.json \
-            --python-tests evidence/functional/build/python-results.xml \
-            --core-tests evidence/functional/test/results_core.xml \
-            --formal-log evidence/functional/build/formal-engine.log \
-            | tee evidence/physical-summary.json
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+          mkdir -p build/tt-ci
+          gh api "repos/$GITHUB_REPOSITORY/environments/v2-physical" > build/tt-ci/environment.json
+          gh api "repos/$GITHUB_REPOSITORY/environments/v2-physical/deployment-branch-policies" > build/tt-ci/branches.json
+          python -m tools.tt_qualification guard
+      - uses: TinyTapeout/tt-gds-action/gl_test@3412659307918422f3f0727917cf9b499aaca588
         with:
-          name: physical-summary
-          path: evidence/physical-summary.json
+          test-dir: test/tt
+      - name: Verify the complete V2 pin suite and netlist identity
+        run: python -m tools.tt_qualification gatelevel
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: v2-tt-gatelevel
+          path: build/tt-ci
+          if-no-files-found: error
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: v2-tt-gatelevel-diagnostics
+          path: test/output
+          if-no-files-found: warn
+  acceptance:
+    needs: [functional, gds, precheck, gatelevel]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ inputs.candidate_sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: v2-tt-functional
+          path: build/qualification/functional
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: v2-tt-physical
+          path: build/qualification/physical
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: v2-tt-precheck
+          path: build/qualification/precheck
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: v2-tt-gatelevel
+          path: build/qualification/gatelevel
+      - name: Apply unchanged physical requirements and complete functional checks
+        run: python -m tools.tt_qualification accept --directory build/qualification
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: v2-tt-qualification
+          path: build/qualification
+          if-no-files-found: error
+          include-hidden-files: true
+  record_local:
+    needs: candidate
+    if: inputs.mode == 'record_local'
+    uses: ./.github/workflows/tt-local-report.yaml
+    with:
+      candidate_sha: ${{ inputs.candidate_sha }}
+      report_json: ${{ inputs.report_json }}
