@@ -107,7 +107,7 @@ open tabs consume additional browser memory and share the serial service.
 Run the geometry and service regression tests:
 
 ```sh
-.venv/bin/python -m pytest -q tests/test_gds_render.py tests/test_gds_viewer.py
+.venv/bin/python -m pytest -q tests/tooling/test_gds_render.py tests/tooling/test_gds_viewer.py
 ```
 
 These cover transformed 1 nm vias, nested arrays, paths, overlapping boundary

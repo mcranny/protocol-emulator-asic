@@ -4,6 +4,9 @@ on:
   push:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   docs:
     runs-on: ubuntu-24.04
@@ -12,6 +15,25 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           submodules: recursive
-
-      - name: Build docs
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.11'
+      - name: Install documentation and example dependencies
+        run: |
+          python -m pip install -r requirements-docs.txt
+          python -m pip install -e .
+      - name: Build strict Sphinx HTML
+        run: python -m sphinx -n -W --keep-going -b html docs build/docs-html
+      - name: Generate and check all V2 examples
+        run: python examples/v2/run.py --output build/examples-v2
+      - name: Retain HTML and executable examples
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: v2-documentation-${{ github.sha }}
+          path: |
+            build/docs-html
+            build/examples-v2
+          if-no-files-found: error
+      - name: Build TT Markdown datasheet
         uses: TinyTapeout/tt-gds-action/docs@3412659307918422f3f0727917cf9b499aaca588

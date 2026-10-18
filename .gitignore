@@ -21,3 +21,10 @@ test/output/
 formal/*/
 # Local planning notes are never published.
 /PLAN.md
+# Isolated V2 adapter for the upstream TT gate-level action.
+/test/tt/gate_level_netlist.v
+/test/tt/results.xml
+/test/tt/output/
+
+# Separate documentation environment.
+.venv-docs/

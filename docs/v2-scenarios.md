@@ -29,7 +29,7 @@ level and marker deassertion. JSON carries the complete bounded regression.
 VCD shows synchronized capture observations, with unknown state before the
 trigger; it does not contain the original asynchronous stimulus waveform.
 
-## Scenario contract
+## Scenario specification
 
 Schema `protocol-emulator-scenario`, version 1, includes:
 

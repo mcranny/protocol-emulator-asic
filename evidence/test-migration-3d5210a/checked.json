@@ -1,0 +1,8 @@
+{
+  "pytest_cases": 583,
+  "cocotb_scenarios": 24,
+  "assertions": 579,
+  "moved_helpers": 21,
+  "protected_files_unchanged": 38,
+  "body_mismatches": []
+}

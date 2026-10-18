@@ -1,6 +1,12 @@
-# Validation record
+# V1 validation history
 
-## Current status
+This page preserves V1 development measurements and commands from their original
+revisions. Current V2 functional instructions are in [verification](verification.md);
+the [stock TT qualification procedure](v2-tt-flow.md) defines V2 physical approval
+and provenance. The earlier V1 workflow commands below are historical, not the
+V2 dispatch interface.
+
+## V1 development status recorded in September 2026
 
 V1 is implemented and functional verification passes. The latest local
 candidate from [PR #9](https://github.com/mcranny/protocol-emulator-asic/pull/9)

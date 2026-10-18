@@ -113,6 +113,8 @@ def inside():
             if unchanged >= 3:
                 status['stop_reason'] = 'three repair batches without improvement in whole-layout DRC'
                 break
+        else:
+            status['stop_reason'] = 'eight-batch incremental repair budget exhausted'
     except BaseException as error:
         status['stop_reason'] = f'interrupted or failed: {type(error).__name__}: {error}'
         raise

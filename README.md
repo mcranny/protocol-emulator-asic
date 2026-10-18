@@ -1,77 +1,80 @@
 # Protocol Emulator ASIC
 
-A programmable protocol emulator for reproducible hardware debugging on the
-Tiny Tapeout IHP CMOS5L process.
+Programmable protocol emulator ASIC with dual timing engines, SPI host control,
+and triggered capture for reproducible hardware debugging.
 
-The V1 implementation contains a single timing engine, 64 x 24-bit instruction
-memory, a four-byte TX FIFO, and an SPI programming/control interface. UART 8N1
-transmission is implemented in 25 instructions of firmware. Target system clock:
-25 MHz; physical footprint: 6x4 tiles.
+V2 runs two independent 25 MHz engines, each with 64 24-bit instruction words,
+16-byte TX and 16-record RX queues. Firmware implements UART TX/RX, SPI modes
+0–3 as controller or target, and I2C 100/400 kHz as controller or target. A
+32-record triggered capture unit records pin activity without driving protocols.
 
-## Status
+The V2 release candidate is under preparation. [Stock Tiny Tapeout qualification](docs/v2-tt-flow.md)
+and fresh same-revision acceptance remain required before release. Historical
+local closure applies only to its recorded source. No silicon or FPGA operation
+is claimed. The physical target remains 6×4 tiles, 40 ns clock, 1.5 ns maximum
+transition and 0.25 ns uncertainty; the anticipated 8×4 template is deferred.
 
-Python, RTL differential, pin-level UART/SPI, and formal safety checks pass.
-The local routed candidate passes all electrical checks at the configured
-1.5 ns transition limit. Full physical and gate-level acceptance on the final
-revision is required before release; local routing alone is insufficient.
-See [measured results and acceptance requirements](docs/validation.md) and
-[published releases](https://github.com/mcranny/protocol-emulator-asic/releases)
-for accepted revisions and artifacts.
-No silicon or FPGA operation is claimed.
+## Try the V2 examples
 
-## Use
-
-Install Python 3.11+, Icarus Verilog, Verilator, and Yosys. In a virtual
-environment:
+Use Python 3.11+ and a virtual environment:
 
 ```sh
 python -m pip install -e .
-python -m pip install -r test/requirements.txt
-make test
-protocol-emulator assemble examples/uart_1000000.asm /tmp/uart.bin
-protocol-emulator disassemble /tmp/uart.bin
-protocol-emulator run /tmp/uart.bin --data '00 55 a5 ff' --cycles 1200
+python examples/v2/run.py --output build/examples-new
 ```
 
-The default simulation transport starts a fresh device for each CLI invocation.
-Use `run` for a complete simulated session, or the Python library for persistent
-state. A Linux SPI host can install `.[hardware]` and use `--transport spi`;
-that adapter is not validated on physical equipment. The CLI also exposes
-`load`, `verify`, `fifo-write`, `start`, `stop`, `reset`, `status`, and `version`.
+This generates assembly and binary images and checks 14 protocol scenarios,
+including UART duplex at both rates, all SPI modes/roles, and both I2C rates/roles.
+See [pins, expected traces and limits](docs/example-programs.md). The examples
+exercise the cycle model; RTL pin tests separately exercise the SPI host interface.
+The existing `protocol-emulator` CLI remains V1. V2 assembly, decoding and loading
+use the [Python toolchain](docs/assembler-toolchain.md).
 
-Physical optimization can run locally with the pinned Docker image; see
-[local builds](docs/local-build.md). Full GDS CI is dispatched manually after
-local optimization, not on every push. It remains mandatory before release.
+The package version is `2.0.0rc1`. Root Tiny Tapeout metadata and default
+`make test`, `make lint`, `make synth`, `make formal`, and `make -C test`
+entrypoints select V2. Use `make v1-test` for explicit V1 regression.
+[RC notes](docs/release-notes.md) describe compatibility and the remaining qualification gate.
 
-## Documentation
+## Verify and build documentation
 
-- [ISA, timing, host interface and pin allocation](docs/v1-contract.md)
-- [Verification and clock/reset crossing review](docs/verification.md)
-- [Build and physical acceptance evidence](docs/validation.md)
-- [Phase 2 sequence and current throughput limits](docs/phase-2-plan.md)
-- [Project datasheet](docs/info.md)
+Install Icarus Verilog, Verilator and Yosys, then:
 
-## Structure
+```sh
+python -m pip install -r test/requirements.txt
+python tools/validate_local.py --require-clean --output build/validation-new
+```
 
-- `src/`: synthesizable Verilog and physical configuration
-- `host/protocol_emulator/`: assembler, model, loader and CLI
-- `examples/`: generic pulse and UART firmware
-- `tests/`: Python specification and host tests
-- `test/`: core differential and pin-driven cocotb tests
-- `formal/`: induction proof script
-- `docs/`: interfaces, verification, and evidence
+For development, omit `--require-clean`; the report records dirty-source evidence.
+The full gate covers both revisions, five induction proofs, reset/initialization
+checks and six mutations. Physical execution requires an exact candidate SHA
+and the `v2-physical` environment approval. See [verification](docs/verification.md)
+and [release evidence](docs/release-evidence.md) for scope and remaining gates.
 
-UART receive, a second engine, on-chip capture/replay, and SPI/I2C firmware are
-post-V1 work.
+Build HTML in a separate documentation environment:
+
+```sh
+python -m venv .venv-docs
+.venv-docs/bin/python -m pip install -r requirements-docs.txt
+.venv-docs/bin/python -m sphinx -n -W --keep-going -b html docs build/docs-html
+```
+
+CI retains HTML as an artifact; Pages deployment is deferred.
+[The submission index](docs/submission.md) links architecture, ISA, toolchain,
+examples, verification, physical evidence and the required Markdown datasheet.
+[Track 2](docs/verification-track-2.md) records expanded RTL properties and Lean
+semantics work after the V2 candidate baseline is frozen.
+
+## Repository
+
+`src/` contains RTL; `host/protocol_emulator/` holds the assembler, models and
+host API; `examples/v2/` provides executable protocol examples. Python tests are
+under `tests/v1`, `tests/v2` and `tests/tooling`; cocotb scenarios are under
+`test/v1` and `test/v2` with shared support. `formal/` contains proof scripts and
+assumptions; `docs/` is the Sphinx source tree. V1 remains covered by explicit
+regression targets and [compatibility documentation](docs/v1-compatibility.md).
 
 ## License
 
 Apache License 2.0. The project foundation derives from the
 [Tiny Tapeout CMOS5L Verilog template](https://github.com/TinyTapeout/ttihp-verilog-template/tree/cmos5l)
 at `b86a2a781484bcab7ba522dc5de540086695a430`, retaining its license.
-
-## V2 development
-
-The V2 candidate adds two programmable engines and triggered capture.
-See the [architecture and host interface](docs/v2-architecture.md) and
-[capture behavior](docs/v2-capture.md). The released top remains V1.

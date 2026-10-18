@@ -81,15 +81,23 @@ def validate(destination, require_clean=False):
             run(f'synth-{top}.log', ['yosys', '-Q', '-T', '-p',
                                      f'read_verilog src/*.v; synth -top {top}; stat'])
         for name, makefile, suites in (
-            ('v1-core', 'Makefile.core', {'differential_directed', 'differential_random', 'differential_uart'}),
-            ('v1-pins', 'Makefile', {'host_protocol_and_safety', 'uart_firmware_acceptance', 'host_phase_and_interrupted_uart'}),
+            ('v1-core', 'Makefile.core', {'test_differential_directed', 'test_differential_random', 'test_differential_uart'}),
+            ('v1-pins', 'Makefile.v1pins', {'test_host_protocol_and_safety', 'test_uart_firmware_acceptance', 'test_host_phase_and_interrupted_uart'}),
             ('v2-core', 'Makefile.v2', CORE_SUITES),
             ('v2-pins', 'Makefile.v2pins', PIN_SUITES),
-            ('capture', 'Makefile.v2capture', {'v2_capture_differential'})):
+            ('capture', 'Makefile.v2capture', {'test_v2_capture_differential'})):
             run(f'{name}.log', ['make', '-C', 'test', '-f', makefile,
                                f'SIM_BUILD={destination / "sim" / name}',
                                f'COCOTB_RESULTS_FILE={artifacts / (name + ".xml")}'])
             passing_xml(artifacts / (name + '.xml'), required_names=suites)
+        run('initialization-run.log', [sys.executable, '-m', 'tools.audit_initialization',
+                                       '--output', str(destination / 'initialization')])
+        shutil.copy2(destination / 'initialization/initialization.json', artifacts / 'initialization.json')
+        run('reset-audit-run.log', [sys.executable, '-m', 'tools.validate_reset',
+                                   '--output', str(destination / 'reset-audit')])
+        shutil.copy2(destination / 'reset-audit/audit.json', artifacts / 'reset-rtl.json')
+        for version in (1, 2):
+            shutil.copy2(destination / f'reset-audit/v{version}.xml', artifacts / f'v{version}-reset.xml')
         for name in ('engine', 'v2-engine', 'v2-capture', 'v2-integration', 'v2-input-filter'):
             run(f'formal-{name}.log', ['yosys', '-Q', '-T', '-s',
                                       'formal/' + name.replace('-', '_') + '.ys'])

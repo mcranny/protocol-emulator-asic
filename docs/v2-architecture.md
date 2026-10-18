@@ -2,7 +2,8 @@
 
 This document describes the implementation on the V2 development branch. It
 does not establish a V2 release, physical acceptance, or hardware operation.
-The released V1 top, pinout, configuration and `v1.0.0` artifacts remain intact.
+V2 is the default ASIC top. V1 RTL, explicit regression targets, configuration
+under `physical/v1`, and historical `v1.0.0` artifacts remain available.
 The integration candidate is `tt_um_mcranny_protocol_emulator_v2`.
 
 ## Architecture
@@ -17,7 +18,7 @@ The 128-word option is retained in the Python feasibility model only. Candidate
 RTL has 64 words; loading a branch outside that memory must fail before START.
 The combined I2C controller uses 64 instructions; the bidirectional target uses
 62. Firmware changes must repeat fit and timing checks. The instruction encodings
-and cycle semantics below define the v2 compatibility contract. Protocol behavior
+and cycle semantics below define the v2 compatibility specification. Protocol behavior
 is implemented in ordinary firmware, including the custom pulse protocol.
 
 SPI controller firmware accepts `frequency=100_000` or `1_000_000`. Its delay
@@ -51,8 +52,8 @@ not resume execution automatically.
 
 The integrated capture candidate stores 32 timestamped 64-bit records without
 controlling engine execution. Its trigger, sampling, completion and readout
-contract is in [v2-capture.md](v2-capture.md). Combined physical acceptance is
-still required; the earlier dual-engine route did not contain capture.
+specification is in [v2-capture.md](v2-capture.md). The successful combined-design evidence is recorded in
+[the local acceptance index](https://github.com/mcranny/protocol-emulator-asic/blob/447b3dfd0986d473c71afa28efafb3a5cff48da7/evidence/v2-local-af573c5/README.md).
 
 Ownership masks must be disjoint and can only be changed with both engines
 stopped. Input observation is shared. An open-drain mask must be a subset of
@@ -169,7 +170,7 @@ transport exception.
 | 22 / 23 | Configure watch 0 / 1: mask, value, edge mask in increasing byte order |
 | 24 | Configure wait-abort event mask, low two bits |
 | 25 / 26 | Set / read global input-filter mask; command 25 requires both engines stopped |
-| 30..37 | Capture control/status/readout; see [capture contract](v2-capture.md) |
+| 30..37 | Capture control/status/readout; see [capture specification](v2-capture.md) |
 
 TX packed writes are all-or-nothing against the pre-edge FIFO level. Result
 bits 4:0 contain the pre-push level and bits 6:5 the accepted byte count.
@@ -200,7 +201,7 @@ differential tests compare architectural state after every edge. Independent
 model and pin peers exercise firmware without using engine instruction timing
 as their decoding oracle. The integration proof assumes the separately checked
 engine/capture interfaces: queue bounds, readiness and output ownership/open-drain
-contracts. It proves configuration isolation, output masking, atomic acceptance
+specifications. It proves configuration isolation, output masking, atomic acceptance
 and reservation reset. A separate filter proof covers three-sample qualification.
 Core formal induction covers FIFO counts, ordering and
 data preservation for an arbitrary accepted TX byte/RX record, return-stack
@@ -219,9 +220,42 @@ a 500 us service interval. Its largest service occupies 492 us, including
 byte/frame continuity, not physical host scheduling. The API requires its
 caller to schedule service; it makes no real-time Linux guarantee.
 
-Full physical/precheck/gate-level acceptance and the public release evidence
-package remain required. Functional additions and their checks are described in
-the phase-specific PR validation record. The candidate top is not
-selected by `info.yaml`, and existing V1 acceptance must not be presented as V2
-acceptance.
+The archived source passed local physical/precheck/gate-level acceptance.
+Further tests and formal verification continue on the open development PR.
+Changed revisions require fresh evidence. Functional additions and their checks are described in
+[v2-validation.md](v2-validation.md). The V2 top is selected by `info.yaml`; existing V1 acceptance does not establish
+V2 acceptance.
 
+## Reproducing physical feasibility
+
+Prepare a fresh isolated source directory with
+`python tools/v2_candidate.py --output build/v2-candidate-01`, then pass that
+directory to the pinned runner described in `docs/local-build.md` using
+`--source build/v2-candidate-01`. Preparation refuses to overwrite an existing
+directory and records input hashes, including firmware, verification and flow
+configuration. The runner preserves that manifest with the route evidence.
+Preparation does not modify the source checkout. The root configuration already
+contains V2 defaults; the isolated copy records the exact execution inputs.
+
+`physical/v2/overrides.json` configures 100 um clock-buffer
+spacing, automatic global-route repair wire length, 1000 um placement displacement
+limits, standard clock-wire spacing (`CTS_APPLY_NDR=none`), and 5% global-route
+capacity reservation (`GRT_ADJUSTMENT=0.05`). A 70% slew repair guard band and
+30% antenna ratio margin address extracted wire loading. Antenna repair allows
+six iterations and uses diode-only repair after detailed routing. Signal and
+clock routing both use Metal2 through Metal4; TopMetal1 remains excluded.
+The placement and global-route hold margins are 0.05 ns. These settings retain
+the successful RX-sharing candidate's routing specification and replace the older
+Metal1/jumper-only experiment. Any fanout added by antenna diodes must be
+repaired and rechecked with fresh extracted timing; it is not waived.
+These are implementation settings; the 6x4 footprint, 40 ns clock, 1.5 ns
+transition limit and all existing acceptance checks remain in force. The
+settings do not establish physical closure. Route-only success must still be
+followed by full physical, precheck and routed-netlist acceptance.
+
+The independent pin suite can run on a functional routed netlist using
+`make -C test -f Makefile.v2pins GATES=yes PDK_ROOT=/absolute/pdk/path
+GATE_LEVEL_NETLIST=/absolute/routed/netlist.v`. This requires the unpowered
+netlist and the pinned standard-cell models. Its results are separate from
+RTL (`results_v2_gl.xml`) and from extracted timing analysis; it does not
+replace all-corner timing or physical checks.

@@ -1,7 +1,7 @@
 SIM ?= icarus
 TOPLEVEL_LANG = verilog
 TOPLEVEL = tt_um_mcranny_protocol_emulator_v2
-COCOTB_TEST_MODULES = test_v2_pins
+COCOTB_TEST_MODULES = v2.test_pins
 ifeq ($(GATES),yes)
 ifndef PDK_ROOT
 $(error PDK_ROOT is required for V2 gate-level simulation)
@@ -20,5 +20,5 @@ VERILOG_SOURCES = $(CURDIR)/../src/host_spi.v $(CURDIR)/../src/v2_engine.v $(CUR
 SIM_BUILD = sim_build/v2pins
 COCOTB_RESULTS_FILE = results_v2_pins.xml
 endif
-export PYTHONPATH := $(CURDIR)/../host:$(PYTHONPATH)
+export PYTHONPATH := $(CURDIR):$(CURDIR)/../host:$(PYTHONPATH)
 include $(shell cocotb-config --makefiles)/Makefile.sim

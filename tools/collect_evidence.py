@@ -44,8 +44,8 @@ def collect(kind):
                 "test/sim_build/core/*.fst", "build/formal-*.log",
                 "build/python-results.xml", "build/synthesis.log", "src/*.v",
                 "src/config.json", "info.yaml", "test/requirements.txt",
-                "formal/*.ys", "examples/*.asm", "test/test*.py", "test/Makefile*",
-                "tests/test_v2*.py", "build/v2-mutations/results.json",
+                "formal/*.ys", "examples/*.asm", "test/**/*.py", "test/Makefile*",
+                "tests/**/*.py", "build/v2-mutations/results.json",
                 "host/protocol_emulator/*.py", "host/protocol_emulator/v2/*.py",
                 "physical/v2/*", "tools/v2_*.py"]
     paths = [path for pattern in patterns for path in Path(".").glob(pattern)]

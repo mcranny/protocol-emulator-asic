@@ -55,3 +55,25 @@ Historical measurements were checked against the retained validation and
 closure records dated September 25 through October 6, 2026. They establish the
 motivation for each decision; they do not establish causation for every later
 improvement or acceptance of a changed source revision.
+
+## Share RX reads and qualify the resulting candidate
+
+After bounded repair of the previous placement plateaued, RX read sharing
+selected the FIFO address before one read tree instead of reading head and next
+entries in parallel. Delayed host consumption, wraparound and empty/lookahead
+validity remain unchanged. Generic synthesis measured 27,386 to 25,990 cells
+with all 6,871 storage flop cells retained. These generic counts are not mapped
+area or a controlled attribution of the entire final routing improvement.
+
+Fresh synthesis and placement, diode antenna repair, and a guarded fanout ECO
+produced the final candidate. The archived run completed on October 8, 2026
+with zero required physical/electrical violations, worst setup slack +18.370074 ns
+and worst hold slack +0.052527 ns. It passed 560 Python tests, 14 gate-level suites,
+nine precheck checks, existing RTL suites, five formal checks and six mutations.
+The [evidence index](https://github.com/mcranny/protocol-emulator-asic/blob/447b3dfd0986d473c71afa28efafb3a5cff48da7/evidence/v2-local-af573c5/README.md) binds those results
+to the original source and provides the full successful-run archive.
+
+The `v2-current` Draft PR remains the home for stronger behavioral tests,
+broader formal properties and coverage review. Existing safety proofs retain
+their stated assumptions. Successful local acceptance is a baseline for this
+work, not a claim that verification is complete.

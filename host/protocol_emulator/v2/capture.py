@@ -1,4 +1,4 @@
-"""Bounded post-trigger capture reference contract.
+"""Bounded post-trigger capture reference model.
 
 Sample immediately before engine execution at an edge. Output/marker changes
 from that execution therefore appear at the next capture sample. Timestamps
