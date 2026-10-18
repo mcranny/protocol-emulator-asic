@@ -15,5 +15,6 @@ Competition submission is a separate action after the candidate is qualified.
 
 HTML is built with pinned Sphinx, MyST and Alabaster dependencies and retained as
 an Actions artifact. Pages deployment is deferred. Source, package and example
-archives, checksums, and the final same-revision evidence index remain release
-qualification work until [the checklist](release-evidence.md) is complete.
+archives and checksums identify the software candidate separately from the
+selected physical source. The [release evidence index](release-evidence.md)
+records the layout, source correspondence and publication checklist.

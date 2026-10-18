@@ -2,8 +2,9 @@
 
 V2 implements two programmable timing engines, SPI host control, and triggered
 capture for reproducible hardware debugging. Protocols are ordinary instruction
-programs. This documentation describes the release candidate under preparation;
-final stock-flow qualification is pending. No hardware demonstration is claimed.
+programs. The release candidate selects the validated local TT checkpoint
+recovery as its physical basis; see the [release evidence](release-evidence.md)
+for source identities, checks and limitations. No hardware demonstration is claimed.
 
 ```{toctree}
 :maxdepth: 2

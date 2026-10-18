@@ -8,10 +8,12 @@ V2 runs two independent 25 MHz engines, each with 64 24-bit instruction words,
 0–3 as controller or target, and I2C 100/400 kHz as controller or target. A
 32-record triggered capture unit records pin activity without driving protocols.
 
-The V2 release candidate is under preparation. [Stock Tiny Tapeout qualification](docs/v2-tt-flow.md)
-and fresh same-revision acceptance remain required before release. Historical
-local closure applies only to its recorded source. No silicon or FPGA operation
-is claimed. The physical target remains 6×4 tiles, 40 ns clock, 1.5 ns maximum
+The V2 release candidate uses the validated local Tiny Tapeout checkpoint
+recovery from `447b3df`, selected on 18 October 2026 after the hosted candidate
+run reached its six-hour limit. The [release evidence](docs/release-evidence.md)
+binds that layout to its original source and records the correspondence with
+the `881495c` software candidate. No silicon or FPGA operation is claimed.
+The physical target remains 6×4 tiles, 40 ns clock, 1.5 ns maximum
 transition and 0.25 ns uncertainty; the anticipated 8×4 template is deferred.
 
 ## Try the V2 examples
@@ -33,7 +35,7 @@ use the [Python toolchain](docs/assembler-toolchain.md).
 The package version is `2.0.0rc1`. Root Tiny Tapeout metadata and default
 `make test`, `make lint`, `make synth`, `make formal`, and `make -C test`
 entrypoints select V2. Use `make v1-test` for explicit V1 regression.
-[RC notes](docs/release-notes.md) describe compatibility and the remaining qualification gate.
+[RC notes](docs/release-notes.md) describe compatibility, the selected layout and publication checks.
 
 ## Verify and build documentation
 

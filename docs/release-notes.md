@@ -1,7 +1,8 @@
 # V2.0.0rc1 release candidate notes
 
 These notes describe an unpublished candidate targeting eventual `v2.0.0`.
-Final same-revision functional and physical qualification is still required.
+The selected physical release is the validated local TT checkpoint recovery
+from `447b3df`; software/package evidence is bound separately to `881495c`.
 No silicon/FPGA demonstration or competition acceptance is claimed.
 
 ## Candidate behavior
@@ -23,7 +24,7 @@ The physical target remains 6×4 tiles, 40 ns clock, maximum transition 1.5 ns,
 clock uncertainty 0.25 ns, and 32 capture records. Root physical settings
 incorporate the existing V2 overrides without changing the prepared physical
 settings. The checkpoint recovery's execution/debug settings remain specific to
-that recorded run; any final-flow change requires explicit review and fresh
+that recorded run; any future flow change requires explicit review and fresh
 qualification. The 8×4 template and any migration/re-hardening for it are deferred.
 
 ## Compatibility and operating limits
@@ -50,24 +51,26 @@ Five induction proofs, six mutations, initialization elaboration, four-state
 reset tests, independent models/decoders and executable examples are documented
 in the [verification write-up](verification.md).
 
-The earlier `447b3df` checkpoint recovery passed physical checks, nine stock
+The selected `447b3df` checkpoint recovery passed physical checks, nine stock
 prechecks, all 14 V2 gate-level pin scenarios, mapping and full-geometry checks.
 A supplemental reset audit from `c1c9be5` passed on its netlist. That evidence
-retains those source identities and does not qualify this changed candidate.
+retains those source identities. On 18 October 2026, after the six-hour hosted
+timeout for `881495c`, the repository owner selected this layout for V2.
+An exact Yosys elaboration comparison (excluding only source-location
+attributes) and prepared-configuration comparison passed between the two sources.
+See the [release evidence index](release-evidence.md) for hashes, separate
+software/physical identities and the retained failed attempts.
 
 ## Qualification and publication checklist
 
-- Review and commit the candidate changes with authorization.
-- Re-query the CMOS5L action tip immediately before freezing the clean candidate;
-  review changes and update compatible pins if it advanced.
-- Pass the complete functional gate, strict Sphinx build and all executable
-  examples on that exact clean revision.
-- Run fresh approved TT physical qualification, or the documented same-flow
-  timeout fallback. Retain all failed attempts and exact dependency identities.
-- Pass matching-netlist gate-level and reset/X tests, stock precheck, all-corner
-  timing/electrical checks and complete full-geometry evidence.
-- Pass the unchanged common-source acceptance checks before describing the RC
-  as qualified.
+- Review and commit the release-selection documentation with authorization,
+  after its complete functional gate and strict Sphinx build pass.
+- Retain the selected layout's passing physical checks, stock precheck,
+  all-corner timing/electrical checks and complete full-geometry evidence.
+- Complete the current gate-level and reset/X reruns on the selected netlist;
+  record their test revision separately from the physical source.
+- Preserve the original source and dependency identities, both hosted timeouts,
+  the failed local parent route and the exact successful checkpoint recovery.
 - Produce a source archive, Python sdist/wheel, Sphinx HTML, generated example
   sources/images/traces, evidence index and SHA-256 checksums. Verify package
   version consistency and installed APIs/CLI in an isolated environment.

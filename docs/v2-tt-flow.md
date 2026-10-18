@@ -2,15 +2,17 @@
 
 ## Current status and fixed configuration
 
-The stock CMOS5L flow has not yet qualified this candidate. Historical local
-closure at `af573c5` retains its original source identity and does not establish
-submission compatibility for a new revision. A stock-flow violation is a
-submission-level blocker; keep its failing artifacts and identify the required
-repair before proposing a separately reviewed change.
+On 18 October 2026, the repository owner selected the passing `447b3df`
+checkpoint recovery as the V2 release layout after hosted qualification of
+`881495c` reached its six-hour limit. The [recovery record](#validated-checkpoint-recovery)
+describes the unchanged stock scripts, verified checkpoint and independent checks.
+The [release evidence index](release-evidence.md) binds this layout to its
+original physical source and the corresponding software candidate.
 
-The `447b3df` checkpoint recovery and its independent checks have passed;
-the [recovery record](#validated-checkpoint-recovery) describes that evidence.
-Final clean-candidate qualification remains pending.
+This selection replaces the requirement to obtain another fresh route for this
+release. It preserves every physical check and the failed attempts. A stock-flow
+violation still requires a separately reviewed solution; selecting the passing
+recovery does not waive the earlier failed route or relabel the timeout as success.
 
 Keep 6×4 tiles, a 40 ns clock, 1.5 ns maximum transition, 0.25 ns clock
 uncertainty, and 32 capture records. The anticipated 8×4 template is deferred;
@@ -254,8 +256,9 @@ Gate-level simulation uses functional cell models without SDF; timing is
 established separately by extracted all-corner STA.
 
 This establishes passing recovered-layout checks without the historical custom
-repairs. It does not establish a successful uninterrupted stock invocation from
-RTL, final revision acceptance, or competition acceptance. The local manifest
+repairs. The owner selected this layout for the release on 18 October 2026.
+It does not establish a successful uninterrupted stock invocation from RTL or
+competition acceptance. The local manifest
 retains `execution_path: local_tt_flow_checkpoint_rerun`. A reporting envelope
 may use `local_tt_flow` only with the mandatory nested recovery record below.
 
@@ -299,15 +302,18 @@ in `qualification.json`. Both paths remain subject to the same physical
 requirements. Re-query the CMOS5L action branch immediately before the final
 candidate freeze; review any update and rerun functional and physical gates.
 
-Schema `2` records this reviewed checkpoint recovery without claiming final
-release acceptance. It requires `release_acceptance: false`, the original
+Schema `2` records this reviewed checkpoint recovery without itself making a
+release selection. It requires `release_acceptance: false`, the original
 physical-source functional counts, and a separate supplemental reset-audit
 source/hash/netlist identity. Its `recovery` object records `kind:
 checkpoint_rerun`, source, failed parent result and failure, checkpoint and
 manifest hashes, exact configuration changes, unchanged stock scripts, no ECOs,
 validation-summary hash, and GDS/netlist hashes. Missing evidence, altered
 configuration, failed checks, or mixed-source counts are rejected. Schema `1`
-retains the existing complete same-source result requirements.
+retains the existing complete same-source result requirements. The later release
+selection is recorded separately; historical manifests and reporting envelopes
+remain unchanged. Neither reporting success nor selection claims that CI reran
+the physical checks.
 
 Dispatch the report through the existing workflow, which is already registered
 on the default branch, using the reviewed reporter revision on an eligible branch:
