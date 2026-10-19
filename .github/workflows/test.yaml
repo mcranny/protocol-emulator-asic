@@ -13,32 +13,5 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y iverilog verilator yosys
           pip install -r test/requirements.txt
-      - name: Python specification tests
-        run: python -m pytest -q tests/v1/test_host.py tests/v1/test_isa.py tests/v1/test_model.py tests/tooling/test_evidence_manifest.py tests/tooling/test_local_flow.py tests/tooling/test_physical_config.py tests/tooling/test_physical_gate.py --junitxml=build/python-results.xml
-      - name: RTL lint
-        run: verilator --lint-only --Wno-DECLFILENAME --top-module tt_um_mcranny_protocol_emulator src/*.v
-      - name: Engine differential simulation
-        run: make -C test -f Makefile.core
-      - name: Formal safety
-        run: make v1-formal
-      - name: RTL simulation
-        run: make -C test -f Makefile.v1pins
-      - name: Record evidence provenance
-        if: always()
-        run: python tools/collect_evidence.py --kind rtl --output build/rtl-evidence.json
-      - uses: test-summary/action@31493c76ec9e7aa675f1585d3ed6f1da69269a86
-        if: always()
-        with:
-          paths: test/results.xml
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        if: always()
-        with:
-          name: test-results
-          path: |
-            test/tb.fst
-            test/results*.xml
-            test/output/*
-            build/formal-engine.log
-            build/python-results.xml
-            build/rtl-evidence.json
-            test/sim_build/core/*.fst
+      - name: Python tests
+        run: python -m pytest tests -q

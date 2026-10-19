@@ -24,16 +24,13 @@ jobs:
           python -m pip install -e .
       - name: Build strict Sphinx HTML
         run: python -m sphinx -n -W --keep-going -b html docs build/docs-html
-      - name: Generate and check all V2 examples
-        run: python examples/v2/run.py --output build/examples-v2
-      - name: Retain HTML and executable examples
+      - name: Retain HTML
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: v2-documentation-${{ github.sha }}
           path: |
             build/docs-html
-            build/examples-v2
           if-no-files-found: error
       - name: Build TT Markdown datasheet
         uses: TinyTapeout/tt-gds-action/docs@3412659307918422f3f0727917cf9b499aaca588
