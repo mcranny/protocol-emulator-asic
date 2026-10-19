@@ -45,12 +45,23 @@ plan and the spec disagree, the spec wins and the plan gets fixed.
   indentation, `default_nettype none` at the top of every file, `default_nettype wire` at the end.
 - **Python:** 3.11, standard library only for the core package (`pyproject.toml` lists no runtime
   dependencies and that stays true). Type hints on all public functions; `mypy --strict` clean.
-- **Git identity:** every commit must be authored `Matthew Cranny <crannymatthew@gmail.com>`.
-  No `Co-authored-by` trailers, no agent attribution, in commit messages, PR bodies, or code
-  comments. A local `commit-msg` hook in `.git/hooks/` strips these; do not remove it. Verify with
-  `git log -1 --format='%an <%ae>%n%B'` after each commit.
-- **No pushing.** Commit locally only. Publishing to GitHub is a separate, explicitly requested
-  action.
+- **Branch:** all V3 work is on the `v3` branch, delivered through its pull request. Nothing is
+  committed to `main`. The commit script refuses `main` and `master`.
+- **Committing — the only supported way:** `python tools/milestone_commit.py -a -m "Subject"
+  [-b "Body"]`. Never run `git commit` directly: the agent harness rewrites any shell command
+  containing `git commit` to append `--trailer "Co-authored-by: Cursor <...>"`. The script uses
+  plumbing (`commit-tree`), which has no `--trailer` option, sets the author and committer to
+  `Matthew Cranny <crannymatthew@gmail.com>` itself, rejects any message mentioning a co-author or
+  an AI tool, reads the commit back, and rolls it back if anything is off. Every `git commit` shown
+  in a task's "Commit" step below is shorthand for this script with the same message.
+- **Commit only confirmed milestones.** The script runs `python -m pytest tests -q` and refuses to
+  commit on failure. Pass `--check "cmd"` (repeatable) to replace that with the task's own
+  verification, such as a cocotb Makefile or a formal proof. A task's "Commit" step is a milestone
+  only because the task's tests pass immediately before it; do not commit partial work between
+  steps.
+- **No agent attribution anywhere:** commit messages, PR titles and bodies, code comments, docs.
+- **No pushing from tasks.** Pushing `v3` and updating its PR is a separate, explicitly requested
+  action, not part of any task.
 - **Working directory:** `C:\Users\matthewc\Documents\Projects\protocol-emulator-asic` on Windows,
   or `/mnt/c/Users/matthewc/Documents/Projects/protocol-emulator-asic` from WSL. All build output
   goes under `build/`, which is gitignored.
