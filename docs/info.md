@@ -15,7 +15,7 @@ masks. Open-drain masks release high levels. Reset, deselection, halt and fatal
 errors release protocol outputs. Following state loss, assert reset, wait for
 its synchronizer, reconfigure ownership/watches/filtering, reload programs and
 refill queues before restarting. Program and capture retention across power
-loss is not supported. See [architecture](v2-architecture.md) and
+loss is not supported. See the architecture notes and
 [reset behavior](reset-and-power.md).
 
 ## How to test

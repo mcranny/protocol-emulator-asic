@@ -26,7 +26,7 @@ def checksums(paths):
             with path.open("rb") as stream:
                 for chunk in iter(lambda: stream.read(1024 * 1024), b""):
                     digest.update(chunk)
-            result[str(path)] = {"sha256": digest.hexdigest(), "bytes": path.stat().st_size}
+            result[path.as_posix()] = {"sha256": digest.hexdigest(), "bytes": path.stat().st_size}
     return result
 
 

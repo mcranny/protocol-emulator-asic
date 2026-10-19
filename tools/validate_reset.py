@@ -7,7 +7,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from tools.check_v2 import checksum, passing_xml
+from tools.check_physical import checksum, passing_xml
 from tools.local_flow import PDK_REV, verify_checkout
 from tools.validate_local import source_state
 

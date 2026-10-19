@@ -12,7 +12,7 @@ of 24-bit instruction memory per engine, 16-entry TX/RX queues, SPI host control
 pin ownership and open-drain configuration, input filtering, and 32 triggered
 capture records. Firmware supports UART TX/RX, SPI modes 0–3 in controller and
 target roles, and I2C 100/400 kHz in controller and target roles. See the
-[architecture](v2-architecture.md), [ISA](isa-reference.md), and
+architecture, [ISA](isa-reference.md), and
 [executable examples](example-programs.md) for detailed behavior and limits.
 
 Default TT metadata, physical configuration, root Makefile targets and default
@@ -77,5 +77,5 @@ software/physical identities and the retained failed attempts.
 - Deliver the reviewable candidate and its evidence for publication approval.
   Merge, tags, release publication and competition submission remain separate.
 
-[Track 2](verification-track-2.md) starts after the V2 candidate baseline is
+Track 2 starts after the V2 candidate baseline is
 frozen. Expanded RTL proofs and Lean theorems are future work, not RC claims.

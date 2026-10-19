@@ -1,2 +1,3 @@
-# V2 is the default pin suite. V1 remains in Makefile.v1pins.
-include $(CURDIR)/Makefile.v2pins
+# V1 and V2 pin suites are not part of this tree.
+.PHONY: all
+all:

@@ -2,7 +2,7 @@
 
 This page preserves V1 development measurements and commands from their original
 revisions. Current V2 functional instructions are in [verification](verification.md);
-the [stock TT qualification procedure](v2-tt-flow.md) defines V2 physical approval
+the stock TT qualification procedure defines V2 physical approval
 and provenance. The earlier V1 workflow commands below are historical, not the
 V2 dispatch interface.
 

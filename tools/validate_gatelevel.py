@@ -14,9 +14,21 @@ import sys
 import xml.etree.ElementTree as ET
 
 try:
-    from .check_v2 import PIN_SUITES, checksum, passing_xml
+    from .check_physical import checksum, passing_xml
 except ImportError:
-    from check_v2 import PIN_SUITES, checksum, passing_xml
+    from check_physical import checksum, passing_xml
+
+PIN_SUITES = {
+    "test_v2_pin_transport_safety", "test_v2_capture_host_and_noninterference",
+    "test_v2_uart_fault_capture_and_scenario", "test_v2_bounded_firmware_playback",
+    "test_v2_full_duplex_host_budget", "test_v2_uart_megabaud_buffered_duplex",
+    "test_v2_spi_target_independent_peer", "test_v2_spi_controller_independent_decoder",
+    "test_v2_i2c_controller_independent_peer", "test_v2_i2c_target_independent_peer",
+    "test_v2_protocol_faults",
+    "test_v2_spi_i2c_fault_scenarios",
+    "test_v2_input_filter_spikes_and_bypass",
+    "test_v2_custom_pulse_protocol",
+}
 
 ROOT = Path(__file__).resolve().parents[1]
 

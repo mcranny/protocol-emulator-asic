@@ -11,10 +11,36 @@ import shutil
 import subprocess
 import sys
 
+import xml.etree.ElementTree as ET
+
 try:
-    from .check_v2 import checksum, python_suites, passing_xml, PIN_SUITES, CORE_SUITES
+    from .check_physical import checksum, passing_xml
+    from .validate_gatelevel import PIN_SUITES
 except ImportError:
-    from check_v2 import checksum, python_suites, passing_xml, PIN_SUITES, CORE_SUITES
+    from check_physical import checksum, passing_xml
+    from validate_gatelevel import PIN_SUITES
+
+CORE_SUITES = {
+    "test_v2_uart_differential",
+    "test_v2_instruction_differential",
+    "test_v2_fifo_boundary_differential",
+}
+
+
+def python_suites(results, collection):
+    """Match every executed pytest identity to a fresh collection from the snapshot."""
+    expected = []
+    for line in collection.read_text().splitlines():
+        if line.startswith("tests/") and "::" in line:
+            parts = line.split("::")
+            module = parts[0].removesuffix(".py").replace("/", ".")
+            expected.append((".".join([module, *parts[1:-1]]), parts[-1]))
+    actual = [(case.get("classname"), case.get("name"))
+              for case in ET.parse(results).getroot().iter("testcase")]
+    if (not expected or len(set(expected)) != len(expected)
+            or sorted(actual) != sorted(expected)):
+        raise ValueError("Python test identities differ from the collected source suite")
+    return passing_xml(results, minimum=len(expected))
 
 ROOT = Path(__file__).resolve().parents[1]
 

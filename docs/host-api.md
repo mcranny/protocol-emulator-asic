@@ -1,6 +1,6 @@
 # V2 host API
 
-[The architecture](v2-architecture.md#host-transport) specifies every command,
+The architecture specifies every command,
 response field and wire interval. `protocol_emulator.v2.host.Device` wraps a
 five-byte `exchange` transport; `connect` probes the version before choosing
 V1 or V2. The model's `Device` is a separate cycle-level specification, not a
@@ -22,7 +22,7 @@ transport adapter. Hardware transport operation has not been demonstrated.
 Watch commands 0x22/0x23 pack mask in bits 7:0, value in 15:8 and edge mask in
 23:16. Command 0x24 sets the two-bit wait-abort mask. Apply these to a stopped
 engine, following the [example configurations](example-programs.md).
-[Capture](v2-capture.md) and [scenario preparation/readout](v2-scenarios.md)
+Capture and scenario preparation/readout
 document their higher-level APIs.
 
 A response arrives during the frame following its request. RX consumption commits

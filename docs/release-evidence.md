@@ -19,7 +19,7 @@ records that local evidence; it did not rerun physical verification.
 The candidate remains 6×4 tiles at 40 ns clock period, with maximum transition
 1.5 ns, clock uncertainty 0.25 ns, and 32 capture records. The anticipated 8×4
 template is deferred; this plan includes no migration or re-hardening for it.
-The [stock TT procedure](v2-tt-flow.md) binds original/prepared inputs and exact
+The stock TT procedure binds original/prepared inputs and exact
 action, support tools, LibreLane, container and PDK versions to the results.
 Its repair-provenance table distinguishes local fresh routing, diode power
 reconnection and guarded fanout repair from operations performed by stock TT.
@@ -36,7 +36,7 @@ reconnection and guarded fanout repair from operations performed by stock TT.
 | Final hosted timeout | [Run 39087676085](https://github.com/mcranny/protocol-emulator-asic/actions/runs/39087676085), source 881495c: functional gate passed; GDS exceeded six hours, with gate-level/precheck/acceptance jobs skipped. Retained logs reached routing iteration 7 with 1,405 intermediate violations; this is not a completed failing physical result or a physical pass |
 | Manual TT run | [Run 38115576757](https://github.com/mcranny/protocol-emulator-asic/actions/runs/38115576757), source 3d5210a, produced the V1 top; it does not qualify V2 |
 | Historical local acceptance | `af573c5fef6f96b4c2fbd400e6565b3b41f54aef`; [immutable evidence index](https://github.com/mcranny/protocol-emulator-asic/blob/447b3dfd0986d473c71afa28efafb3a5cff48da7/evidence/v2-local-af573c5/README.md) retains its original source identity |
-| Selected physical release | Physical source `447b3df`: recovery completed with zero required physical violations; nine stock prechecks, all 14 V2 gate-level pin scenarios, independent mapping and full-geometry checks passed. Supplemental reset audit from `c1c9be5` also passed on that netlist. See [recovery scope and provenance](v2-tt-flow.md#validated-checkpoint-recovery). |
+| Selected physical release | Physical source `447b3df`: recovery completed with zero required physical violations; nine stock prechecks, all 14 V2 gate-level pin scenarios, independent mapping and full-geometry checks passed. Supplemental reset audit from `c1c9be5` also passed on that netlist. See the recovery scope and provenance. |
 
 ## Layout and software correspondence
 

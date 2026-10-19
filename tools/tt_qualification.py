@@ -11,7 +11,9 @@ import re
 import shutil
 from pathlib import Path
 
-from tools import check_physical, check_v2, v2_candidate, validate_local
+from tools import check_physical, validate_local
+from tools.validate_gatelevel import PIN_SUITES
+from tools.validate_local import CORE_SUITES
 from tools.local_flow import IMAGE, PDK_REV, TT_REV, verify_checkout
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -33,8 +35,8 @@ SUITES = {
         "test_differential_uart",
     },
     "v1-pins.xml": check_physical.PIN_SUITES,
-    "v2-core.xml": check_v2.CORE_SUITES,
-    "v2-pins.xml": check_v2.PIN_SUITES,
+    "v2-core.xml": CORE_SUITES,
+    "v2-pins.xml": PIN_SUITES,
     "capture.xml": {"test_v2_capture_differential"},
     "v1-reset.xml": {"test_v1_reset_and_state_loss"},
     "v2-reset.xml": {"test_v2_reset_and_state_loss"},

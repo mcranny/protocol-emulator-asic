@@ -30,7 +30,7 @@ option; the 64-word ASIC faults on an out-of-range taken target. Assemble with
 
 ## Extensions
 
-[The architecture's extension table](v2-architecture.md#instruction-extensions)
+The architecture's extension table
 lists every opcode D subopcode (IN, RX, CLEARIS, BRPIN, BREQ, BRC, DRIVE, WAITFOR,
 MARK, WAITEVENT, MOVIS, OUT8, PULLNB, CLEAREVENT, FAIL, BRDIFF), the operand widths
 packed from bit zero upward, and each effect. Bits 19:16 select that subopcode.
@@ -62,7 +62,7 @@ and WAITBR use R1 without modifying it; zero is illegal. Watch abort sets
 interrupt/timeout and otherwise advances. Timeout/interruption flags change
 when a wait retires. Events latch before observation; CLEAREVENT wins over a
 simultaneous set of the same event. Input synchronization and optional filtering
-add the latency documented in [architecture](v2-architecture.md#input-filtering).
+add the latency documented in the architecture.
 
 ## Errors, memory and compatibility
 
@@ -77,4 +77,4 @@ External reset invalidates program storage without initializing its data.
 State reset preserves program validity; powered disable is not power-loss
 retention. Follow the [restart sequence](reset-and-power.md) after state loss.
 V1 opcodes 0–C retain their encodings and cycle behavior within V1 address limits,
-but [host clients require version selection](v1-compatibility.md).
+but host clients require version selection.

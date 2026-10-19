@@ -14,7 +14,7 @@ pytest collection, both tops' lint/synthesis, 24 ordinary RTL scenarios, two
 four-state reset scenarios, seven initialization elaborations, all five
 induction proofs, and all six detected mutations. Technology-independent
 synthesis is not a routed area or timing result. Physical approval and exact
-netlist checks follow the [TT procedure](v2-tt-flow.md).
+netlist checks follow the TT procedure.
 
 ## Independent checks
 
@@ -69,7 +69,7 @@ GitHub Pages/viewer deployment is a presentation step, not a physical criterion.
 
 The [five induction proofs](formal-proofs.md) document their assumptions and
 black boxes. The [reset and power audit](reset-and-power.md) adds four-state
-startup and state-loss checks. [Track 2](verification-track-2.md) records expanded
+startup and state-loss checks. Track 2 records expanded
 RTL verification and the Lean semantics work after the candidate baseline.
 
 ## V2 differential, pin and fault coverage
@@ -115,7 +115,7 @@ The five induction proofs establish their listed safety properties under
 [explicit assumptions and abstractions](formal-proofs.md). They do not prove
 complete protocol semantics, analog timing or silicon behavior. Historical local
 physical acceptance is bound to af573c5; stock TT closure for each new candidate
-requires fresh evidence. [Track 2](verification-track-2.md) defines expanded
+requires fresh evidence. Track 2 defines expanded
 properties, compositional-assumption review, broader mutations and Lean ISA
 encoding/execution/timing theorems, beginning with a property-to-implementation
 map. Those are planned deliverables, not V2 candidate proof claims.

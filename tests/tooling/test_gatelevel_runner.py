@@ -145,14 +145,13 @@ def test_existing_results_are_never_reused(make_gatelevel_run, tmp_path, monkeyp
 
 
 def test_selected_only_cocotb_report_preserves_exact_identity(tmp_path):
-    from tools.check_v2 import PIN_SUITES
     from tools.validate_gatelevel import selected_case
 
-    name = sorted(PIN_SUITES)[0]
+    name = sorted(runner.PIN_SUITES)[0]
     path = tmp_path / "filtered.xml"
     path.write_text(
         f'<testsuites><testsuite><testcase name="{name}" sim_time_ns="10"/></testsuite></testsuites>'
     )
     assert selected_case(path, name).get("name") == name
     with pytest.raises(ValueError, match="collected suites"):
-        selected_case(path, sorted(PIN_SUITES)[1])
+        selected_case(path, sorted(runner.PIN_SUITES)[1])
