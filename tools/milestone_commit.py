@@ -44,8 +44,13 @@ DEFAULT_CHECKS = [f"{sys.executable} -m pytest tests -q"]
 PROTECTED_BRANCHES = {"main", "master"}
 
 #: Any match in the subject or body rejects the commit.
+#:
+#: "cursor" on its own is deliberately not here: the V3 architecture is the
+#: time-cursor architecture and commit messages will say so. The agent is
+#: matched by the forms that actually appear in injected trailers.
 FORBIDDEN = re.compile(
-    r"co-authored-by|cursor|claude|copilot|codex|chatgpt|openai|anthropic|"
+    r"co-authored-by|cursoragent|cursor\.com|cursor agent|cursor ai|"
+    r"claude|copilot|codex|chatgpt|openai|anthropic|"
     r"generated (with|by)|ai[- ]generated",
     re.IGNORECASE,
 )

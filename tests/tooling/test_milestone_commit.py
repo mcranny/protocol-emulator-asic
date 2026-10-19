@@ -91,11 +91,20 @@ def test_refuses_to_commit_on_main(repo: Path) -> None:
     assert "refusing to commit on 'main'" in result.stderr
 
 
+def test_the_architecture_name_is_not_mistaken_for_attribution(repo: Path) -> None:
+    result = run(
+        repo, "-a", "-m", "Add the time-cursor pin cell",
+        "-b", "The cursor advances by one bit period per iteration.", "--check", PASS,
+    )
+    assert result.returncode == 0, result.stderr
+
+
 @pytest.mark.parametrize(
     "text",
     [
         "Co-authored-by: Someone <s@example.com>",
-        "Written with help from Cursor",
+        "Co-authored-by: Cursor <cursoragent@cursor.com>",
+        "Written with the Cursor agent",
         "Generated with an assistant",
         "Reviewed by Claude",
     ],
