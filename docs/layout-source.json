@@ -1,0 +1,8 @@
+{
+  "release": "v2",
+  "physical_source_commit": "447b3dfd0986d473c71afa28efafb3a5cff48da7",
+  "archive_url": "https://github.com/mcranny/protocol-emulator-asic/releases/download/v2/protocol-emulator-v2-selected-layout-447b3df.tar.gz",
+  "archive_sha256": "7e6ce3c42a6368f75c26c602eb5f4d05a97d8d38a51c4b9ba00d5a1d384d01f0",
+  "gds_member": "tt_um_mcranny_protocol_emulator_v2.gds",
+  "gds_sha256": "902c78fce4a69fde56dbf209b34d5c809e2d44610e6b1e790f03963bb97322c6"
+}

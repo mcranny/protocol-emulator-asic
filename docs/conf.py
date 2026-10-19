@@ -10,3 +10,5 @@ html_title = "Protocol Emulator ASIC — V2"
 html_theme_options = {"description": "Dual timing engines and triggered capture"}
 myst_heading_anchors = 4
 nitpicky = True
+
+html_baseurl = "https://mcranny.github.io/protocol-emulator-asic/"

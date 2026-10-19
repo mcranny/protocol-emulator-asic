@@ -14,7 +14,8 @@ Competition submission is a separate action after the candidate is qualified.
 | TT Markdown datasheet | [Project datasheet](info.md), retained at `docs/info.md` |
 
 HTML is built with pinned Sphinx, MyST and Alabaster dependencies and retained as
-an Actions artifact. Pages deployment is deferred. Source, package and example
+an Actions artifact and published on [GitHub Pages](https://mcranny.github.io/protocol-emulator-asic/),
+with the [interactive layout explorer](https://mcranny.github.io/protocol-emulator-asic/layout/). Source, package and example
 archives and checksums identify the software candidate separately from the
 selected physical source. The [release evidence index](release-evidence.md)
 records the layout, source correspondence and publication checklist.
