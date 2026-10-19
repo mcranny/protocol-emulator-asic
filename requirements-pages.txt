@@ -1,0 +1,4 @@
+# Static GDS export is separate from ordinary Sphinx builds and ASIC tooling.
+-r requirements-docs.txt
+-r requirements-viewer.txt
+gdstk==0.9.61

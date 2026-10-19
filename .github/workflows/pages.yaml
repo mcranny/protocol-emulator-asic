@@ -1,0 +1,74 @@
+name: GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - 'docs/**'
+      - 'tools/build_pages.py'
+      - 'tools/export_gds_static.py'
+      - 'tools/static_gds_viewer/**'
+      - 'tools/check_static_gds_browser.py'
+      - 'requirements*'
+      - '.github/workflows/pages.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages-${{ github.event_name == 'pull_request' && github.ref || 'production' }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.11'
+      - name: Install pinned site dependencies
+        run: python -m pip install -r requirements-pages.txt -r requirements-viewer-browser.txt
+      - name: Build strict Sphinx and selected V2 layout
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m tools.build_pages --output build/pages
+      - name: Install browser for site checks
+        run: python -m playwright install --with-deps chromium
+      - name: Check desktop, mobile, project paths and damaged tiles
+        run: |
+          python -m http.server --bind 127.0.0.1 --directory build 8000 > build/site-server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid"' EXIT
+          python -m tools.check_static_gds_browser --url http://127.0.0.1:8000/pages/layout/ --output build/pages-browser-check
+      - name: Retain site check evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: pages-browser-check
+          path: build/pages-browser-check
+          if-no-files-found: ignore
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa
+        with:
+          path: build/pages
+
+  deploy:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Configure Pages
+        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b
+      - name: Publish site
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e

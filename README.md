@@ -16,6 +16,9 @@ the `881495c` software candidate. No silicon or FPGA operation is claimed.
 The physical target remains 6×4 tiles, 40 ns clock, 1.5 ns maximum
 transition and 0.25 ns uncertainty; the anticipated 8×4 template is deferred.
 
+[Read the documentation](https://mcranny.github.io/protocol-emulator-asic/) ·
+[Explore the V2 layout](https://mcranny.github.io/protocol-emulator-asic/layout/)
+
 ## Try the V2 examples
 
 Use Python 3.11+ and a virtual environment:

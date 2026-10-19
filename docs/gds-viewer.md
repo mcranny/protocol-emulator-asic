@@ -1,6 +1,30 @@
-# Full-detail GDS viewer
+# GDS layout viewers
 
-The viewer renders the original GDS through a local KLayout service. The browser
+## Online V2 layout explorer
+
+[Open the interactive V2 layout explorer](https://mcranny.github.io/protocol-emulator-asic/layout/).
+It displays the selected `447b3df` layout directly from GitHub Pages and works
+without a local service. Drag to pan, scroll or pinch to zoom, select layers,
+or choose **Inspect geometry** to move from the overview into detailed geometry.
+
+The overview is a raster preview. Subpixel wires may be invisible at that scale;
+it is not a geometry or connectivity check. At detailed zoom, the browser loads
+checksum-verified tiles containing original transformed polygon coordinates.
+The export retains paths, arrays and every hierarchy level, with no polygon
+simplification or small-feature filter. Tile-boundary duplicates are clipped
+at display time. Text labels are available in the original GDS but are not drawn
+in the online viewer. Geometry cannot establish connectivity; use LVS reports.
+
+All layer/datatype pairs are available, identified by their GDS numbers. The
+export independently compares KLayout and gdstk expanded polygon counts per
+layer. A manifest records the GDS checksum, counts, bounds and tile hashes.
+The browser keeps at most 12 geometry tiles and uses a raster preview at wider
+views. Modern browsers need Canvas, Web Crypto and gzip DecompressionStream.
+The original GDS can always be downloaded from the viewer.
+
+## Local service with arbitrary viewport rendering
+
+The local viewer renders the original GDS through a KLayout service. The browser
 holds one current viewport bitmap rather than millions of SVG elements. Every
 settled zoom or pan requests a new render from the source geometry. Wires, vias,
 paths, array instances and all hierarchy levels remain available at any zoom.
@@ -90,9 +114,10 @@ always downloadable. Downloads stream from disk without loading the entire file
 into the browser page. Opening the complete SVG directly can still consume large
 amounts of memory; the new HTML does not embed it.
 
-`index.html` is now a small service client. Opening it as a file, or serving it
-with a plain static HTTP server, shows setup instructions. Interactive navigation
-requires `tools/view_gds.py`; it cannot run as a standalone static site.
+The local export's `index.html` is a small service client. Opening it as a file, or serving it
+with a plain static HTTP server, shows setup instructions. Interactive navigation in this local client
+requires `tools/view_gds.py`. The separate static exporter supplies the online
+GitHub Pages viewer described above.
 
 ## Resource limits and local verification
 
@@ -133,3 +158,29 @@ are separate from the ASIC flow dependencies.
 A saved development GDS is suitable for viewer tests but is not accepted v2
 signoff evidence. Final v2 rendering must use the exact GDS accepted by physical
 signoff and precheck.
+
+## Publishing the documentation site
+
+The **GitHub Pages** workflow builds strict Sphinx HTML plus the static viewer.
+Pull requests build the site without deploying; only `main` can deploy through
+the `github-pages` environment. All Pages actions and Python dependencies are
+pinned. The site uses the repository path `/protocol-emulator-asic/`; viewer
+assets use relative paths so they also work under that prefix.
+
+`docs/layout-source.json` selects the released layout archive and both archive
+and GDS checksums. A checksum mismatch fails the build. Updating documentation
+does not silently switch the physical layout to another revision. The original
+GDS, generated tiles and previews are build artifacts rather than Git source.
+The complete evidence archive remains linked from its existing host.
+
+To reproduce in a separate virtual environment:
+
+```sh
+python -m pip install -r requirements-pages.txt
+python -m tools.build_pages --output build/pages-new
+python -m http.server --directory build/pages-new 8000
+```
+
+Open `http://localhost:8000/` for Sphinx and `/layout/` for the viewer. Use
+`--archive /path/to/the/release-archive.tar.gz` to reuse the exact pinned archive
+offline. A site over 900 MB fails the build before deployment.
