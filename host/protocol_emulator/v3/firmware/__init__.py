@@ -11,6 +11,7 @@ available firmware without importing each module.
 """
 from collections.abc import Callable
 
+from .spi import spi_controller, spi_target
 from .uart import uart_rx, uart_tx
 
 #: Registry of firmware generators, keyed by a short program name. Every value
@@ -19,6 +20,8 @@ from .uart import uart_rx, uart_tx
 PROGRAMS: dict[str, Callable[..., str]] = {
     "uart_tx": uart_tx,
     "uart_rx": uart_rx,
+    "spi_controller": spi_controller,
+    "spi_target": spi_target,
 }
 
-__all__ = ["PROGRAMS", "uart_tx", "uart_rx"]
+__all__ = ["PROGRAMS", "uart_tx", "uart_rx", "spi_controller", "spi_target"]
