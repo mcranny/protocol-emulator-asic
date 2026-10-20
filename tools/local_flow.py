@@ -13,7 +13,16 @@ import sys
 
 IMAGE = "ghcr.io/librelane/librelane@sha256:d109140b8f17fc54f4fca998beb8124f4949404ec52e339eebd2250854a18b5a"
 PDK_REV = "2bbec755dc67ca3db0261c3d6163e15735d66710"
-TT_REV = "f6bf5c587fba4a4a8abd4c0a03234fccfbf6e61e"
+TT_REV = "d66cf179e7bc4d296362ab7e2e3b344dc3c4f665"
+
+
+def evidence_key(relative: Path) -> str:
+    """Return a manifest key with POSIX separators.
+
+    ``str(path)`` on Windows uses backslashes, so the same file would hash
+    under a different key than on Linux.
+    """
+    return relative.as_posix()
 
 
 def output(*args, cwd=None):
@@ -146,7 +155,7 @@ def main():
     for path in files:
         relative = path.relative_to(source)
         shutil.copy2(path, destination / relative)
-        manifest["files"][str(relative)] = hashlib.sha256(path.read_bytes()).hexdigest()
+        manifest["files"][evidence_key(relative)] = hashlib.sha256(path.read_bytes()).hexdigest()
     runner = Path(__file__).resolve()
     manifest["runner_sha256"] = hashlib.sha256(runner.read_bytes()).hexdigest()
     manifest_path = destination / "local-evidence.json"

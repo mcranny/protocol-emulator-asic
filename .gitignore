@@ -28,3 +28,6 @@ formal/*/
 
 # Separate documentation environment.
 .venv-docs/
+
+# Local checkouts for parallel work. Never published.
+/.worktrees/

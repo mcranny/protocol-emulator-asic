@@ -6,6 +6,14 @@ import math
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
+def checksum(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 CORNERS = ("nom_fast_1p32V_m40C", "nom_slow_1p08V_125C", "nom_typ_1p20V_25C")
 DIE_AREA = [0, 0, 1289.28, 710.64]
 ELECTRICAL_RULES = ("slew", "fanout", "cap")

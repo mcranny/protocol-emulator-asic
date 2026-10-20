@@ -1,0 +1,9 @@
+SIM ?= icarus
+TOPLEVEL_LANG = verilog
+VERILOG_SOURCES = $(CURDIR)/../src/v3_pin_cell.v
+TOPLEVEL = v3_pin_cell
+MODULE = v3.test_pin_cell
+SIM_BUILD = sim_build/v3pincell
+COCOTB_RESULTS_FILE = results_v3_pin_cell.xml
+export PYTHONPATH := $(CURDIR):$(CURDIR)/../host:$(PYTHONPATH)
+include $(shell cocotb-config --makefiles)/Makefile.sim

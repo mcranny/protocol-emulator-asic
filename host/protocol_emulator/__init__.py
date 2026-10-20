@@ -1,2 +1,2 @@
 """Versioned host tools for the protocol emulator."""
-__version__ = "2.0.0rc1"
+__version__ = "3.0.0.dev0"

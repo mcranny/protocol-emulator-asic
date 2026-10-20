@@ -5,7 +5,7 @@ import json
 import subprocess
 from pathlib import Path
 
-from tools.check_v2 import checksum
+from tools.check_physical import checksum
 
 ROOT = Path(__file__).resolve().parents[1]
 TOPS = ("tt_um_mcranny_protocol_emulator", "tt_um_mcranny_protocol_emulator_v2")

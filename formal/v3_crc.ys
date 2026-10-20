@@ -1,0 +1,17 @@
+# Proof: F-V3-CRC
+# Top: v3_crc
+# Assumptions: none; every input is arbitrary on every cycle.
+# Properties: reset matches a fresh model.Crc; configuration changes only on
+#   configure; configure alone leaves the register alone; load takes the seed;
+#   shift is one step of the recurrence (shift, then XOR the polynomial when
+#   the outgoing bit XOR the message bit is set), for both directions.
+# Method: temporal induction.
+# Scope and abstractions: formal/README.md.
+
+read_verilog -formal src/v3_crc.v
+prep -top v3_crc
+flatten
+opt
+async2sync
+dffunmap
+sat -seq 4 -tempinduct -maxsteps 16 -set-assumes -prove-asserts -verify

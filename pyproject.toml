@@ -4,14 +4,15 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "protocol-emulator"
-version = "2.0.0rc1"
-description = "Tools for the programmable protocol emulator ASIC"
+version = "3.0.0.dev0"
+description = "Toolchain and model for the V3 protocol emulator ASIC"
 requires-python = ">=3.11"
 license = {text = "Apache-2.0"}
 dependencies = []
 
 [project.optional-dependencies]
 hardware = ["spidev==3.8"]
+dev = ["mypy==1.11.2", "pytest==8.3.3"]
 
 [project.scripts]
 protocol-emulator = "protocol_emulator.cli:main"
