@@ -107,3 +107,27 @@ at N+1 equal to the word last written to an arbitrary constant address,
 bitmap bit, and `invalidate` clearing all of them. The proof does not cover the
 hard macro; the same cocotb tests run against the PDK behavioral model with
 `DEFINES=-DFUNCTIONAL` and check its one-cycle registered read.
+
+## V3 host SPI
+
+`v3_host_spi.ys` proves `v3_host_spi` (proof ID F-V3-HOST-SPI) by temporal
+induction, then checks reachability with bounded runs. Run it from the
+repository root in WSL with `yosys -q formal/v3_host_spi.ys`.
+
+| Property | Statement |
+| --- | --- |
+| Synchronization | `sck`, `cs_n` and `mosi` each reach their second flop exactly two clocks after they are sampled, and the edge-detect registers one clock later |
+| Exact-48 acceptance | `cmd_valid` is high exactly one clock after a synchronized deselect that followed 48 synchronized SCK rising edges |
+| Rejection | Any other count, including 47 and 49, raises `frame_error` instead; the two never coincide |
+| MISO gating | `miso` is low whenever the raw `cs_n` is high, and equals the shift register's top bit while it is low |
+| Response timing | The reply captured with `cmd_valid`, or the reject word after `frame_error`, is held through the deselect and is what the following frame shifts out; while selected only zeros shift in behind it, so a frame's own bits never reach MISO |
+
+The proof assumes an initial reset and that `cs_n` stays high for at least four
+clocks after it rises (the response must be loaded before MISO is enabled
+again); the host must honour this spacing. The count is checked against a ghost
+counter over the synchronized signals, and the synchronizer chain against the
+raw inputs, so SCK edges that land on the synchronized select or deselect are
+outside what the proof says about the pins. Three bounded runs show that frames
+of 48, 47 and 49 edges are reachable under the same assumptions. Frame data
+bits and the reply value are covered by simulation (`test/Makefile.v3host`),
+not by the proof.

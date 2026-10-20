@@ -29,7 +29,8 @@ below. `ihp-sg13cmos5l/libs.ref/sg13cmos5l_sram` is a symlink to
 `physical/v3/pdn-columns.txt`. The column spacing is not one constant pitch.
 
 Windows has no GNU make. `python tools/make_entry.py` runs the same pytest
-command as `make test`. The V3 RTL checks run in WSL from the repository root:
+command as `make test`. The V3 cocotb suites (`test/Makefile.v3*`) and
+proofs (`formal/v3_*.ys`) run in WSL from the repository root. For example,
 `make -C test -f Makefile.v3progmem` runs the program memory cocotb tests, and
 `yosys -q formal/v3_progmem.ys` runs its proof. To simulate against the PDK
 macro model, pass `DEFINES=-DFUNCTIONAL` and a `VERILOG_SOURCES` list of the
