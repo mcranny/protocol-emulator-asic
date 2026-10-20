@@ -29,9 +29,13 @@ below. `ihp-sg13cmos5l/libs.ref/sg13cmos5l_sram` is a symlink to
 `physical/v3/pdn-columns.txt`. The column spacing is not one constant pitch.
 
 Windows has no GNU make. `python tools/make_entry.py` runs the same pytest
-command as `make test`. There are no `test/Makefile.v3*` or `formal/v3_*.ys`
-files yet. LibreLane is the pinned container in the recipe below, not a
-package installed on the host.
+command as `make test`. The V3 RTL checks run in WSL from the repository root:
+`make -C test -f Makefile.v3progmem` runs the program memory cocotb tests, and
+`yosys -q formal/v3_progmem.ys` runs its proof. To simulate against the PDK
+macro model, pass `DEFINES=-DFUNCTIONAL` and a `VERILOG_SOURCES` list of the
+macro file, `RM_IHPSG13_1P_core_behavioral_bm_bist.v` (which holds the behavioral
+core the macro model instantiates), and `../src/v3_progmem.v`. LibreLane is the
+pinned container in the recipe below, not a package installed on the host.
 
 ## One-time setup
 

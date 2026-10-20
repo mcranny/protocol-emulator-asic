@@ -95,3 +95,15 @@ This is compositional safety evidence with an explicit assumption boundary,
 not a monolithic proof of host decoding, capture contents, or protocol timing.
 Reviewing and strengthening the relationships between components belongs to
 [Track 2](../docs/verification-track-2.md), after the candidate baseline freezes.
+
+## V3 program memory
+
+`v3_progmem.ys` (F-V3-PROGMEM, top `v3_progmem`, initial depth 4) proves, on the
+inferred register-file model: the macro tie-offs (`A_DLY` high, every `A_BIST_*`
+input low, all byte-mask bits set), `A_MEN` equal to `fetch_en | write_en` and
+low when neither is asserted, no read and write overlap on the single port, data
+at N+1 equal to the word last written to an arbitrary constant address,
+`image_complete` equal to all 256 bitmap bits set, a write setting exactly one
+bitmap bit, and `invalidate` clearing all of them. The proof does not cover the
+hard macro; the same cocotb tests run against the PDK behavioral model with
+`DEFINES=-DFUNCTIONAL` and check its one-cycle registered read.

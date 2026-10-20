@@ -1,0 +1,18 @@
+# Proof: F-V3-PROGMEM
+# Top: v3_progmem
+# Assumptions: Initial sampled reset; arbitrary subsequent inputs.
+# Properties: Macro tie-offs and A_MEN, read data at N+1 matches the word
+#   written to an arbitrary address, image_complete iff all 256 bitmap bits
+#   are set, a write sets exactly one bit, invalidate clears all bits.
+# Method: temporal induction; bounded success alone is insufficient.
+# Scope and abstractions: formal/README.md. Proves the inferred register-file
+#   model; the macro itself is covered by the FUNCTIONAL simulation run.
+
+read_verilog -formal -Isrc src/v3_progmem.v
+prep -top v3_progmem
+flatten
+memory_map
+opt
+async2sync
+dffunmap
+sat -seq 4 -tempinduct -maxsteps 16 -set-assumes -prove-asserts -verify
