@@ -152,7 +152,6 @@ class Synchronizer:
 class InputFilter:
     """A three-sample debounce filter, eight pins wide.
 
-    A direct port of ``src/v2_input_filter.v`` (``git show v2:src/v2_input_filter.v``):
     ``filtered = (s & p & o) | (filtered & (s | p | o))`` where ``s``, ``p`` and
     ``o`` are the current sample and the two before it. Three consecutive
     agreeing samples qualify a change, so a clean edge appears up to three cycles
@@ -374,22 +373,17 @@ class CaptureReason:
 class Capture:
     """Triggered capture of pins and engine flags, 32 records deep.
 
-    A port of ``src/v2_capture.v`` (``git show v2:src/v2_capture.v``). Capture
-    samples and never controls execution. Call :meth:`arm` once to start, then
-    :meth:`record` once per clock with the current sample.
+    Capture samples and never controls execution. Call :meth:`arm` once to
+    start, then :meth:`record` once per clock with the current sample.
 
-    **What V3 changes from V2.** V2 kept a private counter that restarted at
-    zero on arm and stamped each record with cycles since arm. The V3 spec has
-    capture use the shared 32-bit timestamp (24-bit timebase plus 8-bit
-    epoch), so the caller passes that value in and records carry it unchanged.
-    Consequently the timestamp is absolute rather than relative to arm, the
-    arm record is no longer stamped zero, and V2's stop-on-timestamp-saturation
-    (reason 6) is gone: the shared counter keeps running and wraps at 2**32.
+    Records are stamped with the shared 32-bit timestamp (24-bit timebase plus
+    8-bit epoch) passed in by the caller, so the stamp is absolute. The arm
+    record carries the time it was armed, and reason 6 (timestamp saturation)
+    is never produced.
 
-    **No ring wraparound.** The brief mentions wraparound, but V2 has none: the
-    record store fills, then capture stops with :attr:`truncated` set and
-    reason :attr:`CaptureReason.CAPACITY`, keeping the first 32 records. This
-    port does the same; the 33rd sample is never written.
+    The store does not wrap. It fills, then capture stops with
+    :attr:`truncated` set and reason :attr:`CaptureReason.CAPACITY`, keeping
+    the first 32 records. The 33rd sample is never written.
 
     A record is 64 bits: ``timestamp[63:32]``, ``pins_in[31:24]``,
     ``pins_out[23:16]``, ``pins_oe[15:8]``, then ``flags[7:0]`` with bit 3

@@ -99,7 +99,7 @@ another terminal with `tail -f /tmp/protocol-route-01/flow.log`.
 
 Local ARM64 results need not be bit-identical to Linux AMD64 CI. Final release
 acceptance still requires all mandatory tests and physical checks on one
-identified source revision; see [validation](validation.md). A shortened run,
+identified source revision. A shortened run,
 a repaired intermediate database, or positive setup slack is not signoff.
 Temporary directories may be removed by the operating system: use persistent
 storage for evidence that must survive until release.

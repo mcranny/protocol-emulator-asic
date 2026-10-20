@@ -2,8 +2,8 @@
 
 Each test assembles a program, resets and starts the DUT, then runs it through
 ``support.v3_engine.EngineHarness``, which compares the RTL and the model after
-every clock edge. The staged tests follow the brief's build order so a
-regression is attributable to the instruction group just added; the final test
+every clock edge. The tests are grouped by instruction class, so a regression
+points at the group that changed; the final test
 runs a 100,000-cycle random program differential.
 """
 import random
