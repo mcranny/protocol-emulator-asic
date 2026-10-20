@@ -23,6 +23,7 @@ returns a program correct for the requested rate or raises `ValueError`.
 | `i2c_controller` | `i2c_controller(sda, scl, rate)` | I2C controller on two pins |
 | `i2c_target` | `i2c_target(sda, scl, rate, address)` | I2C target answering one address |
 | `i2c_bus_clear` | `i2c_bus_clear(sda, scl, rate)` | Nine-pulse I2C bus-clear recovery |
+| `ws2812_tx` | `ws2812_tx(pin)` | WS2812 addressable-LED transmitter on one pin |
 
 ## UART
 
@@ -239,3 +240,39 @@ bytes and pushes no records.
 The generated programs for pins SDA 0 / SCL 1 are checked in at
 `examples/v3/i2c_controller_100k.asm` and `examples/v3/i2c_target_100k.asm` at
 100 kHz, and `examples/v3/i2c_bus_clear.asm`.
+
+## WS2812
+
+`ws2812_tx` drives a WS2812 addressable-LED strip on a single pin. The wire
+idles low and every bit is a fixed 1.25 µs period: a high pulse whose width
+carries the value (0.4 µs for a zero, 0.8 µs for a one) followed by a low, and a
+low held for 300 µs latches the pixels. All of these times come from
+`protocol_emulator.v3.timing.WS2812` and `WS2812_RESET`; none is written as a
+literal in the firmware. `pin` is any protocol pin `0`–`7`.
+
+Each bit schedules its rising edge at the cursor, advances the cursor by the
+symbol's high time, schedules the falling edge, and advances by the symbol's low
+time, so one period passes per bit. As for UART the bit value selects the times
+with a branch and the two branches differ in length, but every edge is scheduled
+at the cursor, so the branch length cannot move an edge. The byte is sent most
+significant bit first: it is left-justified into the register and each bit is
+shifted out through the carry, so no mask register is needed. The pin cell's
+single pending slot paces the loop to the wire — the `OUT` that schedules a
+falling edge waits for the preceding rising edge to fire, and the next bit's
+rising `OUT` waits for that falling edge.
+
+The host frames a strip with a leading **count byte**: the first transmit-queue
+entry of a frame is the number of colour bytes that follow, and the program
+sends exactly that many bytes as one gap-free bit stream before holding the line
+low for the reset latch. A frame of *N* LEDs is `3 * N` colour bytes preceded by
+the byte `3 * N`. A count of zero reads the next count, so the host can pad. The
+colour order (the WS2812 wants green, red, blue) is the caller's; the program
+sends the queued bytes in order and does not interpret them.
+
+A self-contained demonstration, `ws2812_rainbow(pin=0)`, bakes three distinct
+GRB triples in with `LI` instead of pulling them, so once loaded and started it
+drives three LEDs to a fixed rainbow, latches, and halts with no host
+interaction. Its generated program for pin 0 is checked in at
+`examples/v3/ws2812_rainbow.asm`. The [flexibility](flexibility.md) page places
+the WS2812 transmitter next to the UART one to show that only the firmware
+differs.
