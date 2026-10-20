@@ -7,7 +7,7 @@ and one that mirrors the hardware structure, it mirrors the hardware.
 from typing import Callable, NamedTuple
 
 from . import PIN_COUNT, PROGRAM_WORDS, TIMEBASE_BITS, isa
-from .opcodes import CONDITIONS
+from .opcodes import CONDITIONS, POLARITIES
 
 TIMEBASE_MASK = (1 << TIMEBASE_BITS) - 1
 TIMEBASE_HALF = 1 << (TIMEBASE_BITS - 1)
@@ -115,6 +115,81 @@ class PinCell:
     def clear_missed(self) -> None:
         """Clear the sticky missed-deadline flag."""
         self.missed = False
+
+
+class Synchronizer:
+    """A two-flop input synchronizer, eight pins wide.
+
+    Pad inputs are asynchronous to the 48 MHz clock, so each is clocked through
+    two flip-flops before anything downstream uses it. A level presented at the
+    pad appears at the output two cycles later. The eight bits are independent;
+    one byte-wide instance is exactly eight per-pin synchronizers run in step,
+    which is how the top level instantiates them.
+
+    :meth:`tick` follows a read-then-advance convention: it returns the output
+    valid on the current cycle, then clocks the edge. The raw synchronized byte
+    it returns is what capture records (as in V2); :class:`InputFilter` consumes
+    it to produce the engine-visible level.
+    """
+
+    def __init__(self) -> None:
+        self._first = 0
+        self._second = 0
+
+    def tick(self, raw: int) -> int:
+        """Clock one cycle; return the synchronized byte valid this cycle."""
+        out = self._second
+        self._second = self._first
+        self._first = raw & 0xFF
+        return out
+
+    @property
+    def value(self) -> int:
+        """The synchronized byte currently presented at the output."""
+        return self._second
+
+
+class InputFilter:
+    """A three-sample debounce filter, eight pins wide.
+
+    A direct port of ``src/v2_input_filter.v`` (``git show v2:src/v2_input_filter.v``):
+    ``filtered = (s & p & o) | (filtered & (s | p | o))`` where ``s``, ``p`` and
+    ``o`` are the current sample and the two before it. Three consecutive
+    agreeing samples qualify a change, so a clean edge appears up to three cycles
+    after it reaches the filter input and glitches shorter than that are
+    rejected. The eight bits are independent, matching the eight per-pin filters
+    the V3 top level instantiates.
+
+    Fed from :class:`Synchronizer`, the combined pad-to-filtered latency is about
+    two synchronizer cycles plus up to three filter cycles. Unlike V2, V3 filters
+    all eight pins unconditionally: there is no filter mask (the V3 loader has no
+    command for one), so the engine-visible level is always the debounced value.
+
+    :meth:`tick` uses the same read-then-advance convention as
+    :class:`Synchronizer`: it returns the filtered byte valid this cycle, then
+    clocks the edge.
+    """
+
+    def __init__(self) -> None:
+        self._previous = 0
+        self._older = 0
+        self._filtered = 0
+
+    def tick(self, samples: int) -> int:
+        """Clock one cycle; return the filtered byte valid this cycle."""
+        samples &= 0xFF
+        out = self._filtered
+        self._filtered = (samples & self._previous & self._older) | (
+            self._filtered & (samples | self._previous | self._older)
+        )
+        self._older = self._previous
+        self._previous = samples
+        return out
+
+    @property
+    def value(self) -> int:
+        """The filtered (engine-visible) byte currently at the output."""
+        return self._filtered
 
 
 class Timebase:
@@ -565,23 +640,55 @@ class Engine:
         the instruction without retiring it.
     """
 
-    def __init__(self, pins: list[PinCell], owner: int, open_drain: int = 0) -> None:
+    def __init__(
+        self,
+        pins: list[PinCell],
+        owner: int,
+        open_drain: int = 0,
+        crc: "Crc | None" = None,
+    ) -> None:
         """Create an engine over the shared ``pins`` with the given masks.
 
         :param pins: the eight shared pin cells; the engine writes only those
             it owns.
         :param owner: 8-bit mask of pins this engine may commit to.
         :param open_drain: 8-bit open-drain mask, recorded for completeness.
+        :param crc: the shared :class:`Crc` unit. Both engines are given the
+            same instance so their CRC bursts chain; stepping engine 0 before
+            engine 1 each cycle makes the order deterministic. When ``None`` a
+            private unit is created, which suits a single-engine test.
+
+        The queues are owned per engine (:attr:`queues`). Edge watchers are held
+        in :attr:`watches` as ``(mask, value, edges)`` tuples with
+        :attr:`abort_mask` naming which of them abort a wait; both are set
+        directly before :meth:`start`. :attr:`events`, :attr:`previous`,
+        :attr:`marker`, :attr:`pull_empty` and :attr:`isr` carry the event,
+        edge-detection, capture-marker, pull and shift-register state.
         """
         self.pins = pins
         self.owner = owner
         self.open_drain = open_drain
         self.memory = ProgramMemory()
+        self.queues = Queues()
+        self.crc = crc if crc is not None else Crc()
 
         self.pc = 0
         self.cursor = 0
         self.regs = [0, 0, 0, 0]
         self.isr = 0
+
+        #: Per-watcher event bits, set when a watcher's pattern and edge match.
+        self.events = 0
+        #: Watcher configuration, up to two ``(mask, value, edges)`` tuples.
+        self.watches: list[tuple[int, int, int]] = []
+        #: Mask of watchers (bit i = watcher i) that abort a WAITEDGE/WAITFOR.
+        self.abort_mask = 0
+        #: Engine-visible pin byte from the previous cycle, for edge detection.
+        self.previous = 0
+        #: One-cycle capture marker set by MARK, cleared at the top of ``step``.
+        self.marker = 0
+        #: Sticky result of the last PULLNB: true when the TX queue was empty.
+        self.pull_empty = False
 
         self.running = False
         self.halted = False
@@ -600,6 +707,9 @@ class Engine:
         self._flag_interrupted = False
         self._flag_zero = False
         self._flag_carry = False
+
+        self._waitedge_active = False
+        self._waitedge_baseline = 0
 
         self._handlers: dict[str, Handler] = {
             "NOP": self._op_nop,
@@ -630,6 +740,24 @@ class Engine:
             "OE": self._op_oe,
             "DRIVE": self._op_drive,
             "OUT": self._op_out,
+            "SAMPLE": self._op_sample,
+            "IN": self._op_in,
+            "EDGETIME": self._op_edgetime,
+            "WAITEDGE": self._op_waitedge,
+            "WAITFOR": self._op_waitfor,
+            "MOVIS": self._op_movis,
+            "CLEARIS": self._op_clearis,
+            "PULL": self._op_pull,
+            "PULLNB": self._op_pullnb,
+            "RX": self._op_rx,
+            "MARK": self._op_mark,
+            "WAITEVENT": self._op_waitevent,
+            "CLEAREVENT": self._op_clearevent,
+            "CLEARMISS": self._op_clearmiss,
+            "CRCCFG": self._op_crccfg,
+            "CRCLOAD": self._op_crcload,
+            "CRCBIT": self._op_crcbit,
+            "CRCGET": self._op_crcget,
         }
 
     # -- lifecycle ------------------------------------------------------
@@ -657,8 +785,12 @@ class Engine:
         self.stalled = False
         self.retired = 0
         self.cycles_to_halt = 0
+        self.events = 0
+        self.marker = 0
+        self.pull_empty = False
         self._bubble = False
         self._stack = []
+        self._waitedge_active = False
         self._fetch(0)
 
     def stop(self) -> None:
@@ -671,7 +803,13 @@ class Engine:
         Executes the word delivered by the previous cycle's fetch, resolves any
         stall, and prefetches the next word. A taken branch inserts a one-cycle
         bubble so it costs exactly two cycles.
+
+        The one-cycle MARK marker is cleared and the edge watchers are evaluated
+        first, on every clock, so they track the pins independently of the fetch
+        pipeline exactly as the hardware does.
         """
+        self.marker = 0
+        self._evaluate_watchers()
         if not self.running:
             return
         self.cycles_to_halt += 1
@@ -720,14 +858,7 @@ class Engine:
         self.stalled = False
 
     def _execute(self, instr: "isa.Instruction", now: int) -> str:
-        handler = self._handlers.get(instr.name)
-        if handler is None:
-            raise NotImplementedError(
-                f"{instr.name} is not modelled yet: it depends on queues, "
-                "capture, CRC, input sampling or events (a later task wires "
-                "those in)"
-            )
-        return handler(instr.operands, now)
+        return self._handlers[instr.name](instr.operands, now)
 
     def _condition(self, cond: int) -> bool:
         if cond == CONDITIONS["timeout"]:
@@ -736,15 +867,38 @@ class Engine:
             return self._flag_interrupted
         if cond == CONDITIONS["missed"]:
             return any(cell.missed for cell in self.pins)
+        if cond == CONDITIONS["tx_empty"]:
+            return self.queues.tx_level == 0
+        if cond == CONDITIONS["rx_full"]:
+            return self.queues.rx_level == QUEUE_DEPTH
+        if cond == CONDITIONS["pull_empty"]:
+            return self.pull_empty
+        if cond == CONDITIONS["event0"]:
+            return bool(self.events & 1)
+        if cond == CONDITIONS["event1"]:
+            return bool(self.events & 2)
         if cond == CONDITIONS["zero"]:
             return self._flag_zero
         if cond == CONDITIONS["carry"]:
             return self._flag_carry
-        name = next(key for key, value in CONDITIONS.items() if value == cond)
-        raise NotImplementedError(
-            f"BRC condition {name!r} depends on queues or events, which a "
-            "later task wires in"
-        )
+        raise AssertionError(f"unhandled BRC condition {cond}")
+
+    def _pins_byte(self) -> int:
+        """Return the engine-visible (filtered) levels of all eight pins."""
+        return sum((self.pins[index].level & 1) << index for index in range(PIN_COUNT))
+
+    def _evaluate_watchers(self) -> None:
+        """Set each watcher's event bit on a qualifying masked pattern and edge.
+
+        Mirrors V2 ``Engine.tick``: watcher ``i`` sets ``events`` bit ``i`` when
+        the engine-visible pins match its value under its mask and a watched edge
+        occurs since the previous cycle. Event bits are sticky until CLEAREVENT.
+        """
+        pins = self._pins_byte()
+        for index, (mask, value, edges) in enumerate(self.watches):
+            if (pins & mask) == value and ((pins ^ self.previous) & edges):
+                self.events |= 1 << index
+        self.previous = pins
 
     # -- control --------------------------------------------------------
 
@@ -977,4 +1131,180 @@ class Engine:
         due = (self.cursor + offset) & TIMEBASE_MASK
         for pin, value, oe in targets:
             self.pins[pin].schedule(due, value, oe, now)
+        return _ACTION_NEXT
+
+    # -- inputs ---------------------------------------------------------
+
+    def _op_sample(self, ops: dict[str, int], now: int) -> str:
+        """``regs[reg]`` = the eight engine-visible levels, upper bits zero."""
+        self.regs[ops["reg"]] = self._pins_byte() & REGISTER_MASK
+        return _ACTION_NEXT
+
+    def _op_in(self, ops: dict[str, int], now: int) -> str:
+        """Shift one pin bit into the 8-bit ISR, MSB or LSB first."""
+        bit = self.pins[ops["pin"]].level & 1
+        if ops["msb_first"]:
+            self.isr = ((self.isr << 1) | bit) & 0xFF
+        else:
+            self.isr = (self.isr >> 1) | (bit << 7)
+        return _ACTION_NEXT
+
+    def _op_edgetime(self, ops: dict[str, int], now: int) -> str:
+        """``regs[reg]`` = the timestamp of the pin's last filtered edge."""
+        self.regs[ops["reg"]] = self.pins[ops["pin"]].last_edge & REGISTER_MASK
+        return _ACTION_NEXT
+
+    def _op_waitedge(self, ops: dict[str, int], now: int) -> str:
+        """Stall until a qualifying timestamped edge, a timeout or an abort.
+
+        On the first cycle a baseline ``b = now`` is latched. An edge qualifies
+        when ``signed_distance(last_edge, b) >= 0`` (an edge recorded on the
+        entry cycle counts) and its polarity matches. The live level is never
+        read. Ends by abort, match or timeout; see :meth:`_finish_abortable_wait`.
+        """
+        if not self._waitedge_active:
+            self._waitedge_active = True
+            self._waitedge_baseline = now & TIMEBASE_MASK
+        cell = self.pins[ops["pin"]]
+        fresh_edge = signed_distance(cell.last_edge, self._waitedge_baseline) >= 0
+        polarity = ops["polarity"]
+        if polarity == POLARITIES["rising"]:
+            polarity_ok = cell.last_polarity == 1
+        elif polarity == POLARITIES["falling"]:
+            polarity_ok = cell.last_polarity == 0
+        else:
+            polarity_ok = True
+        return self._finish_abortable_wait(fresh_edge and polarity_ok, now)
+
+    def _op_waitfor(self, ops: dict[str, int], now: int) -> str:
+        """Stall until the pin's engine-visible level matches, else timeout/abort."""
+        matched = self.pins[ops["pin"]].level == ops["level"]
+        return self._finish_abortable_wait(matched, now)
+
+    def _finish_abortable_wait(self, matched: bool, now: int) -> str:
+        """Resolve a WAITEDGE/WAITFOR, setting exactly one outcome flag.
+
+        Same-cycle priority is interrupt > match > timeout, as in the V2 model
+        (``self.timeout = not matched and not aborted; self.interrupted =
+        aborted``): an abort-enabled event outranks a match, a match outranks the
+        cursor-derived timeout. A match clears both flags, an abort sets
+        interrupt and clears timeout, a timeout sets timeout and clears interrupt.
+        """
+        aborted = (self.events & self.abort_mask) != 0
+        timed_out = signed_distance(self.cursor, now) <= 0
+        if aborted:
+            self._flag_interrupted = True
+            self._flag_timeout = False
+        elif matched:
+            self._flag_interrupted = False
+            self._flag_timeout = False
+        elif timed_out:
+            self._flag_timeout = True
+            self._flag_interrupted = False
+        else:
+            return _ACTION_STALL
+        self._waitedge_active = False
+        return _ACTION_NEXT
+
+    def _op_movis(self, ops: dict[str, int], now: int) -> str:
+        """``regs[reg]`` = the 8-bit ISR, zero-extended."""
+        self.regs[ops["reg"]] = self.isr & REGISTER_MASK
+        return _ACTION_NEXT
+
+    def _op_clearis(self, ops: dict[str, int], now: int) -> str:
+        """Clear the ISR to zero."""
+        self.isr = 0
+        return _ACTION_NEXT
+
+    # -- queues ---------------------------------------------------------
+
+    def _op_pull(self, ops: dict[str, int], now: int) -> str:
+        """Pop the oldest TX byte into ``regs[reg]``, stalling while empty.
+
+        This is the one unbounded, host-dependent stall: an empty TX queue holds
+        the engine until the host pushes a byte. It does not touch ``pull_empty``.
+        """
+        byte = self.queues.pull()
+        if byte is None:
+            return _ACTION_STALL
+        self.regs[ops["reg"]] = byte & REGISTER_MASK
+        return _ACTION_NEXT
+
+    def _op_pullnb(self, ops: dict[str, int], now: int) -> str:
+        """Non-blocking pull: set ``pull_empty`` and pop a byte if one is there."""
+        self.pull_empty = self.queues.tx_level == 0
+        byte = self.queues.pull()
+        if byte is not None:
+            self.regs[ops["reg"]] = byte & REGISTER_MASK
+        return _ACTION_NEXT
+
+    def _op_rx(self, ops: dict[str, int], now: int) -> str:
+        """Push ``(isr, meta)`` onto the RX queue; a full queue faults ``E_QUEUE``."""
+        if self.queues.rx_level == QUEUE_DEPTH:
+            self._fault(E_QUEUE)
+            return _ACTION_FAULT
+        self.queues.push_rx(value=self.isr, meta=ops["meta"])
+        return _ACTION_NEXT
+
+    # -- events ---------------------------------------------------------
+
+    def _op_mark(self, ops: dict[str, int], now: int) -> str:
+        """Set the one-cycle capture marker to ``code``."""
+        self.marker = ops["code"] & 0xFF
+        return _ACTION_NEXT
+
+    def _op_waitevent(self, ops: dict[str, int], now: int) -> str:
+        """Stall until any masked event bit is set, else time out on the cursor.
+
+        WAITEVENT is never aborted (as in V2). A match clears both wait flags; a
+        cursor-derived timeout sets ``timeout`` and clears ``interrupted``. The
+        timeout keeps PULL on an empty TX queue as the only unbounded stall.
+        """
+        if self.events & ops["mask"]:
+            self._flag_timeout = False
+            self._flag_interrupted = False
+            return _ACTION_NEXT
+        if signed_distance(self.cursor, now) <= 0:
+            self._flag_timeout = True
+            self._flag_interrupted = False
+            return _ACTION_NEXT
+        return _ACTION_STALL
+
+    def _op_clearevent(self, ops: dict[str, int], now: int) -> str:
+        """Clear the masked event bits."""
+        self.events &= ~ops["mask"]
+        return _ACTION_NEXT
+
+    def _op_clearmiss(self, ops: dict[str, int], now: int) -> str:
+        """Clear the missed flag on each masked pin this engine owns.
+
+        An engine never writes a cell it does not own, so mask bits naming
+        unowned pins are ignored without faulting.
+        """
+        mask = ops["mask"]
+        for index in range(PIN_COUNT):
+            if (mask >> index) & 1 and (self.owner >> index) & 1:
+                self.pins[index].clear_missed()
+        return _ACTION_NEXT
+
+    # -- CRC ------------------------------------------------------------
+
+    def _op_crccfg(self, ops: dict[str, int], now: int) -> str:
+        """Configure the shared CRC polynomial and direction; state untouched."""
+        self.crc.configure(ops["poly"], bool(ops["msb_first"]))
+        return _ACTION_NEXT
+
+    def _op_crcload(self, ops: dict[str, int], now: int) -> str:
+        """Seed the shared CRC with the low 16 bits of ``regs[reg]``."""
+        self.crc.load(self.regs[ops["reg"]] & 0xFFFF)
+        return _ACTION_NEXT
+
+    def _op_crcbit(self, ops: dict[str, int], now: int) -> str:
+        """Shift the low bit of ``regs[reg]`` through the shared CRC."""
+        self.crc.shift(self.regs[ops["reg"]] & 1)
+        return _ACTION_NEXT
+
+    def _op_crcget(self, ops: dict[str, int], now: int) -> str:
+        """``regs[reg]`` = the 16-bit shared CRC state, zero-extended."""
+        self.regs[ops["reg"]] = self.crc.value & 0xFFFF
         return _ACTION_NEXT

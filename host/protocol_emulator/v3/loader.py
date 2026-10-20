@@ -126,7 +126,7 @@ def configure(
     engine: int,
     owner: int,
     open_drain: int,
-    watches: Sequence[tuple[int, int, int]] = (),
+    watches: Sequence[tuple[int, ...]] = (),
 ) -> None:
     """Set an engine's pin ownership, open-drain mask and edge watchers.
 
@@ -138,10 +138,13 @@ def configure(
     :param engine: The engine to configure, 0 or 1.
     :param owner: Mask of the pins ``uio[7:0]`` the engine owns, 8 bits.
     :param open_drain: Mask of the engine's open-drain pins, 8 bits.
-    :param watches: At most two ``(mask, value, edges)`` tuples, each field
-        8 bits.
+    :param watches: At most two watch tuples. Each is ``(mask, value, edges)``,
+        each field 8 bits, with an optional fourth element ``abort`` (default
+        ``False``). An abort watcher's event ends a WAITEDGE or WAITFOR
+        interrupted; it is carried in payload bit 24.
     :raises ValueError: If ``engine`` is not 0 or 1, a mask is wider than
-        8 bits, or there are more than two watches. Nothing is sent.
+        8 bits, a watch tuple is not 3 or 4 elements, or there are more than two
+        watches. Nothing is sent.
     :raises ProtocolError: If the chip rejects a command.
     """
     _check_engine(engine)
@@ -149,14 +152,22 @@ def configure(
     _check_byte("open_drain", open_drain)
     if len(watches) > _MAX_WATCHES:
         raise ValueError(f"at most {_MAX_WATCHES} watches are supported, got {len(watches)}")
-    for index, (mask, value, edges) in enumerate(watches):
-        _check_byte(f"watch {index} mask", mask)
-        _check_byte(f"watch {index} value", value)
-        _check_byte(f"watch {index} edges", edges)
+    for index, watch in enumerate(watches):
+        if not 3 <= len(watch) <= 4:
+            raise ValueError(
+                f"watch {index} must be (mask, value, edges[, abort]), got {len(watch)} fields"
+            )
+        _check_byte(f"watch {index} mask", watch[0])
+        _check_byte(f"watch {index} value", watch[1])
+        _check_byte(f"watch {index} edges", watch[2])
     requests = [Frame(_command("CONFIG", engine), 0, owner | open_drain << 8)]
     requests.extend(
-        Frame(_command("WATCH", engine), index, mask | value << 8 | edges << 16)
-        for index, (mask, value, edges) in enumerate(watches)
+        Frame(
+            _command("WATCH", engine),
+            index,
+            watch[0] | watch[1] << 8 | watch[2] << 16 | (bool(watch[3]) if len(watch) == 4 else 0) << 24,
+        )
+        for index, watch in enumerate(watches)
     )
     transact(exchange, requests)
 

@@ -143,6 +143,21 @@ def test_configure_without_watches_sends_only_config(device: FakeDevice) -> None
     assert [f.cmd for f in device.sent if f.cmd != CMD["NOP"]] == [CMD["CONFIG"]]
 
 
+def test_configure_sets_the_abort_bit_for_an_abort_watcher(device: FakeDevice) -> None:
+    watches: list[tuple[int, ...]] = [(0x01, 0x01, 0x02, True), (0xF0, 0x10, 0x01)]
+    loader.configure(device.exchange, 0, 0x0F, 0x00, watches)
+    sent = [f for f in device.sent if f.cmd & ~host.ENGINE_BIT == CMD["WATCH"]]
+    assert sent[0].payload == (0x01 | 0x01 << 8 | 0x02 << 16 | 1 << 24)
+    assert sent[1].payload == (0xF0 | 0x10 << 8 | 0x01 << 16), "no abort bit on a 3-tuple"
+
+
+def test_a_watch_tuple_of_the_wrong_size_is_refused(device: FakeDevice) -> None:
+    bad: list[tuple[int, ...]] = [(1, 2)]
+    with pytest.raises(ValueError, match="watch"):
+        loader.configure(device.exchange, 0, 0, 0, bad)
+    assert device.sent == []
+
+
 def test_configure_engine_1_sets_the_engine_bit(device: FakeDevice) -> None:
     loader.configure(device.exchange, 1, 0xF0, 0x00, [(1, 1, 1)])
     commands = [f for f in device.sent if f.cmd & ~host.ENGINE_BIT != CMD["NOP"]]
