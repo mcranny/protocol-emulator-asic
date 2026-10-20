@@ -1,0 +1,13 @@
+# Proof: F-V3-FILTER
+# Top: v3_input_filter
+# Assumptions: Initial sampled reset; arbitrary synchronized samples.
+# Properties: Three-sample qualification and rejection of disagreeing samples.
+# Method: temporal induction; bounded success alone is insufficient.
+# Scope and abstractions: formal/README.md.
+
+read_verilog -formal src/v3_input_filter.v
+prep -top v3_input_filter
+flatten
+async2sync
+dffunmap
+sat -seq 5 -tempinduct -maxsteps 16 -set-assumes -prove-asserts -verify
