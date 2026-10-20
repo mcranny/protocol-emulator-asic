@@ -10,6 +10,7 @@ were replaced.
 
 history
 design/v3-architecture
+firmware
 info
 ```
 
