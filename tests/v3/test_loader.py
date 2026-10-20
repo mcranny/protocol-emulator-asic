@@ -1,10 +1,11 @@
 """The loader writes, reads back, configures and starts through a one-frame-late reply."""
 import pytest
 
-from protocol_emulator.v3 import PROGRAM_WORDS, host, loader
+from protocol_emulator.v3 import PROGRAM_WORDS, host, loader, model
 from protocol_emulator.v3.isa import assemble
 
 CMD = host.COMMANDS
+REJECT = host.REJECT_BIT
 
 
 class FakeDevice:
@@ -18,6 +19,7 @@ class FakeDevice:
         self.sent: list[host.Frame] = []
         self.version = host.VERSION_WORD
         self.corrupt_read: dict[int, int] = {}
+        self.queues = [model.Queues(), model.Queues()]
         self._pending = host.Frame(CMD["NOP"], 0, 0)
 
     def exchange(self, request: host.Frame) -> host.Frame:
@@ -48,6 +50,20 @@ class FakeDevice:
             self.running = [False, False]
         elif code == CMD["VERSION"]:
             payload = self.version
+        elif code == CMD["TXPUSH"]:
+            count = request.addr
+            if not 1 <= count <= 4:
+                return host.Frame(request.cmd | REJECT, request.addr, 0)
+            data = bytes((request.payload >> (8 * (3 - i))) & 0xFF for i in range(count))
+            before = self.queues[engine].tx_level
+            self.queues[engine].push_tx(data)
+            if self.queues[engine].tx_level == before:
+                return host.Frame(request.cmd | REJECT, request.addr, 0)
+        elif code == CMD["RXPOP"]:
+            record = self.queues[engine].pop_rx()
+            if record is None:
+                return host.Frame(request.cmd | REJECT, request.addr, 0)
+            payload = record[0] << 8 | record[1]
         return host.Frame(request.cmd, request.addr, payload)
 
 
@@ -237,4 +253,61 @@ def test_an_empty_or_out_of_range_start_set_is_refused(
 ) -> None:
     with pytest.raises(ValueError, match="engine"):
         loader.start(device.exchange, engines)
+    assert device.sent == []
+
+
+def test_push_tx_splits_into_four_byte_frames_bytes_msb_first(device: FakeDevice) -> None:
+    loader.push_tx(device.exchange, 0, bytes([1, 2, 3, 4, 5, 6]))
+    pushes = [f for f in device.sent if f.cmd & ~host.ENGINE_BIT == CMD["TXPUSH"]]
+    assert [f.addr for f in pushes] == [4, 2]
+    assert pushes[0].payload == 0x01020304
+    assert pushes[1].payload == 0x05060000
+    assert device.queues[0].tx_level == 6
+    assert device.queues[0].pull() == 1
+
+
+def test_push_tx_sets_the_engine_bit_for_engine_1(device: FakeDevice) -> None:
+    loader.push_tx(device.exchange, 1, bytes([0xAB]))
+    pushes = [f for f in device.sent if f.cmd & ~host.ENGINE_BIT == CMD["TXPUSH"]]
+    assert all(f.cmd & host.ENGINE_BIT for f in pushes)
+    assert device.queues[1].tx_level == 1
+    assert device.queues[0].tx_level == 0
+
+
+def test_push_tx_of_empty_data_sends_only_a_nop(device: FakeDevice) -> None:
+    loader.push_tx(device.exchange, 0, b"")
+    assert [f.cmd for f in device.sent] == [CMD["NOP"]]
+    assert device.queues[0].tx_level == 0
+
+
+def test_push_tx_raises_when_a_group_does_not_fit(device: FakeDevice) -> None:
+    device.queues[0].push_tx(bytes(14))  # leave two slots
+    with pytest.raises(loader.ProtocolError, match="TXPUSH"):
+        loader.push_tx(device.exchange, 0, bytes([1, 2, 3, 4]))
+
+
+def test_pop_rx_returns_the_oldest_record(device: FakeDevice) -> None:
+    device.queues[0].push_rx(value=0x5A, meta=0x27)
+    device.queues[0].push_rx(value=0x11, meta=0x22)
+    assert loader.pop_rx(device.exchange, 0) == (0x5A, 0x27)
+    assert loader.pop_rx(device.exchange, 0) == (0x11, 0x22)
+
+
+def test_pop_rx_returns_none_when_the_queue_is_empty(device: FakeDevice) -> None:
+    assert loader.pop_rx(device.exchange, 0) is None
+
+
+def test_pop_rx_sets_the_engine_bit_for_engine_1(device: FakeDevice) -> None:
+    device.queues[1].push_rx(value=0x7E, meta=0x01)
+    assert loader.pop_rx(device.exchange, 1) == (0x7E, 0x01)
+    pops = [f for f in device.sent if f.cmd & ~host.ENGINE_BIT == CMD["RXPOP"]]
+    assert all(f.cmd & host.ENGINE_BIT for f in pops)
+
+
+@pytest.mark.parametrize("engine", [2, -1])
+def test_queue_commands_refuse_a_bad_engine(device: FakeDevice, engine: int) -> None:
+    with pytest.raises(ValueError, match="engine"):
+        loader.push_tx(device.exchange, engine, b"\x01")
+    with pytest.raises(ValueError, match="engine"):
+        loader.pop_rx(device.exchange, engine)
     assert device.sent == []

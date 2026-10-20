@@ -27,7 +27,7 @@
 
 # Real sub-blocks (full RTL, no embedded FORMAL assertions).
 read_verilog -I src src/v3_timebase.v src/v3_input_filter.v src/v3_host_spi.v \
-                     src/v3_progmem.v src/v3_crc.v src/v3_capture.v
+                     src/v3_progmem.v src/v3_crc.v src/v3_capture.v src/v3_fifo.v
 
 # Blocks to abstract: read only their interfaces (bodies left as black boxes).
 read_verilog -lib -I src src/v3_engine.v src/v3_pin_cell.v

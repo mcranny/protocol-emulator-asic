@@ -49,3 +49,17 @@ outside what the proof says about the pins. Three bounded runs show that frames
 of 48, 47 and 49 edges are reachable under the same assumptions. Frame data
 bits and the reply value are covered by simulation (`test/Makefile.v3host`),
 not by the proof.
+
+## V3 queue
+
+`v3_fifo.ys` (F-V3-FIFO, top `v3_fifo`) proves the ring-buffer queue in its
+transmit configuration (`WIDTH` 8, `PUSH_MAX` 4), the widest push and so the
+hardest atomicity case. By temporal induction it establishes that reset clears
+the pointers and the level, the occupancy never exceeds the depth and tracks
+accepted pushes and pops exactly, the write pointer moves only for an accepted
+push (so a rejected push writes nothing), the read pointer advances only on an
+accepted pop, an accepted push lands its first entry at the old write pointer,
+and the head is the oldest entry. Full FIFO ordering across both the transmit
+and receive configurations is covered by the differential against
+`model.Queues` in `test/Makefile.v3fifo`. Run it from the repository root in
+WSL with `yosys -q formal/v3_fifo.ys`.

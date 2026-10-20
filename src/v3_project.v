@@ -34,15 +34,18 @@ module tt_um_mcranny_protocol_emulator_v3 (
 );
 
     // ------------------------------------------------------------------
-    // Host command codes (low three bits; bit 6 selects the engine).
+    // Host command codes (low four bits; bit 6 selects the engine, bits 5:4
+    // are ignored). Codes 0x0A-0x0F echo with no effect, like NOP.
     // ------------------------------------------------------------------
-    localparam [2:0] CMD_WRITE   = 3'h1;
-    localparam [2:0] CMD_READ    = 3'h2;
-    localparam [2:0] CMD_CONFIG  = 3'h3;
-    localparam [2:0] CMD_WATCH   = 3'h4;
-    localparam [2:0] CMD_START   = 3'h5;
-    localparam [2:0] CMD_STOP    = 3'h6;
-    localparam [2:0] CMD_VERSION = 3'h7;
+    localparam [3:0] CMD_WRITE   = 4'h1;
+    localparam [3:0] CMD_READ    = 4'h2;
+    localparam [3:0] CMD_CONFIG  = 4'h3;
+    localparam [3:0] CMD_WATCH   = 4'h4;
+    localparam [3:0] CMD_START   = 4'h5;
+    localparam [3:0] CMD_STOP    = 4'h6;
+    localparam [3:0] CMD_VERSION = 4'h7;
+    localparam [3:0] CMD_TXPUSH  = 4'h8;
+    localparam [3:0] CMD_RXPOP   = 4'h9;
 
     localparam [31:0] VERSION_WORD = 32'h0300_0000;
 
@@ -115,7 +118,7 @@ module tt_um_mcranny_protocol_emulator_v3 (
         .reply       (host_reply)
     );
 
-    wire [2:0] code       = host_cmd[2:0];
+    wire [3:0] code       = host_cmd[3:0];
     wire       engine_sel = host_cmd[6];       // ENGINE_BIT
 
     // ------------------------------------------------------------------
@@ -224,6 +227,18 @@ module tt_um_mcranny_protocol_emulator_v3 (
     wire read0 = host_cmd_valid && (code == CMD_READ) && (engine_sel == 1'b0);
     wire read1 = host_cmd_valid && (code == CMD_READ) && (engine_sel == 1'b1);
 
+    // Queue commands. TXPUSH carries its byte count in addr (1-4); an out of
+    // range count drives a zero push count, which the FIFO rejects. RXPOP pops
+    // the addressed engine's receive queue; its reply is combinational so the
+    // host sees the popped record on the same frame it commands the pop.
+    wire       txpush      = host_cmd_valid && (code == CMD_TXPUSH);
+    wire       rxpop       = host_cmd_valid && (code == CMD_RXPOP);
+    wire [2:0] txpush_count = (host_addr >= 8'd1 && host_addr <= 8'd4) ? host_addr[2:0] : 3'd0;
+    wire       txpush0 = txpush && (engine_sel == 1'b0);
+    wire       txpush1 = txpush && (engine_sel == 1'b1);
+    wire       rxpop0  = rxpop  && (engine_sel == 1'b0);
+    wire       rxpop1  = rxpop  && (engine_sel == 1'b1);
+
     wire        pm0_fetch_en   = eng0_running || eng0_start || read0;
     wire [7:0]  pm0_fetch_addr = (eng0_running || eng0_start) ? eng0_fetch_addr : host_addr;
     wire        pm1_fetch_en   = eng1_running || eng1_start || read1;
@@ -266,7 +281,15 @@ module tt_um_mcranny_protocol_emulator_v3 (
     wire start_reject  = (code == CMD_START)  &&
                          ((host_payload[0] && !pm0_complete) ||
                           (host_payload[1] && !pm1_complete));
-    wire reject = write_reject || config_reject || watch_reject || start_reject;
+    // TXPUSH is rejected when the queue will not take the push (a zero or over
+    // four count, or the bytes do not fit). RXPOP is rejected when empty.
+    wire       tx_push_ok_sel = engine_sel ? tx1_push_ok : tx0_push_ok;
+    wire [4:0] rx_level_sel   = engine_sel ? rx1_level   : rx0_level;
+    wire [15:0] rx_head_sel   = engine_sel ? rx1_head    : rx0_head;
+    wire txpush_reject = (code == CMD_TXPUSH) && !tx_push_ok_sel;
+    wire rxpop_reject  = (code == CMD_RXPOP)  && (rx_level_sel == 5'd0);
+    wire reject = write_reject || config_reject || watch_reject || start_reject ||
+                  txpush_reject || rxpop_reject;
 
     wire [31:0] read_data = engine_sel ? pm1_fetch_data : pm0_fetch_data;
     wire [7:0]  reply_cmd = reject ? (host_cmd | 8'h80) : host_cmd;
@@ -276,6 +299,8 @@ module tt_um_mcranny_protocol_emulator_v3 (
         reply_payload_r = 32'b0;
         if (code == CMD_VERSION) reply_payload_r = VERSION_WORD;
         else if (code == CMD_READ) reply_payload_r = read_data;
+        else if (code == CMD_RXPOP && rx_level_sel != 5'd0)
+            reply_payload_r = {16'b0, rx_head_sel};
     end
 
     always @* host_reply = {reply_cmd, host_addr, reply_payload_r};
@@ -423,6 +448,65 @@ module tt_um_mcranny_protocol_emulator_v3 (
     wire [7:0]  e0_rx_meta,  e1_rx_meta;
 
     // ------------------------------------------------------------------
+    // Per-engine queues. The TX byte queue is filled by the host (TXPUSH) and
+    // drained by the engine (PULL); the RX record queue is filled by the
+    // engine (RX) and drained by the host (RXPOP). An RX push to a full queue
+    // never happens in practice: the engine faults E_QUEUE first, so the
+    // FIFO's drop-on-full is only a backstop. The queues survive START and
+    // STOP; only reset clears them.
+    // ------------------------------------------------------------------
+    wire [7:0]  tx0_head,  tx1_head;
+    wire [4:0]  tx0_level, tx1_level;
+    wire        tx0_push_ok, tx1_push_ok;
+    wire [15:0] rx0_head,  rx1_head;
+    wire [4:0]  rx0_level, rx1_level;
+    wire        rx0_push_ok, rx1_push_ok;
+
+    v3_fifo #(.WIDTH(8), .DEPTH(16), .PUSH_MAX(4)) u_tx_fifo0 (
+        .clk        (clk),
+        .rst_n      (rst_n),
+        .push_count (txpush0 ? txpush_count : 3'd0),
+        .push_data  (host_payload),
+        .push_ok    (tx0_push_ok),
+        .pop        (e0_tx_pull),
+        .head       (tx0_head),
+        .level      (tx0_level)
+    );
+
+    v3_fifo #(.WIDTH(16), .DEPTH(16), .PUSH_MAX(1)) u_rx_fifo0 (
+        .clk        (clk),
+        .rst_n      (rst_n),
+        .push_count (e0_rx_push),
+        .push_data  ({e0_rx_value, e0_rx_meta}),
+        .push_ok    (rx0_push_ok),
+        .pop        (rxpop0),
+        .head       (rx0_head),
+        .level      (rx0_level)
+    );
+
+    v3_fifo #(.WIDTH(8), .DEPTH(16), .PUSH_MAX(4)) u_tx_fifo1 (
+        .clk        (clk),
+        .rst_n      (rst_n),
+        .push_count (txpush1 ? txpush_count : 3'd0),
+        .push_data  (host_payload),
+        .push_ok    (tx1_push_ok),
+        .pop        (e1_tx_pull),
+        .head       (tx1_head),
+        .level      (tx1_level)
+    );
+
+    v3_fifo #(.WIDTH(16), .DEPTH(16), .PUSH_MAX(1)) u_rx_fifo1 (
+        .clk        (clk),
+        .rst_n      (rst_n),
+        .push_count (e1_rx_push),
+        .push_data  ({e1_rx_value, e1_rx_meta}),
+        .push_ok    (rx1_push_ok),
+        .pop        (rxpop1),
+        .head       (rx1_head),
+        .level      (rx1_level)
+    );
+
+    // ------------------------------------------------------------------
     // Engine 0.
     // ------------------------------------------------------------------
     v3_engine u_engine0 (
@@ -459,10 +543,10 @@ module tt_um_mcranny_protocol_emulator_v3 (
         .watch1_value  (e0_w1_val),
         .watch1_edges  (e0_w1_edges),
         .abort_mask    ({6'b0, e0_w1_abort, e0_w0_abort}),
-        .tx_level      (5'd0),
-        .tx_data       (8'd0),
+        .tx_level      (tx0_level),
+        .tx_data       (tx0_head),
         .tx_pull       (e0_tx_pull),
-        .rx_level      (5'd0),
+        .rx_level      (rx0_level),
         .rx_push       (e0_rx_push),
         .rx_value      (e0_rx_value),
         .rx_meta       (e0_rx_meta),
@@ -528,10 +612,10 @@ module tt_um_mcranny_protocol_emulator_v3 (
         .watch1_value  (e1_w1_val),
         .watch1_edges  (e1_w1_edges),
         .abort_mask    ({6'b0, e1_w1_abort, e1_w0_abort}),
-        .tx_level      (5'd0),
-        .tx_data       (8'd0),
+        .tx_level      (tx1_level),
+        .tx_data       (tx1_head),
         .tx_pull       (e1_tx_pull),
-        .rx_level      (5'd0),
+        .rx_level      (rx1_level),
         .rx_push       (e1_rx_push),
         .rx_value      (e1_rx_value),
         .rx_meta       (e1_rx_meta),
@@ -623,8 +707,7 @@ module tt_um_mcranny_protocol_emulator_v3 (
                      e0_r0, e0_r1, e0_r2, e0_r3, e1_r0, e1_r1, e1_r2, e1_r3,
                      e0_isr, e1_isr, e0_events, e1_events, e0_link, e1_link,
                      e0_dstall, e1_dstall,
-                     e0_tx_pull, e1_tx_pull, e0_rx_push, e1_rx_push,
-                     e0_rx_value, e1_rx_value, e0_rx_meta, e1_rx_meta};
+                     rx0_push_ok, rx1_push_ok};
 
 `ifdef FORMAL
     // Property 1: the two ownership masks are disjoint.

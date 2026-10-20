@@ -1,0 +1,21 @@
+# Proof: F-V3-FIFO
+# Top: v3_fifo, parameterized to the TX configuration (WIDTH 8, PUSH_MAX 4),
+#   the widest push and so the hardest atomicity case.
+# Assumptions: initial sampled reset; arbitrary subsequent inputs.
+# Properties: reset clears the pointers and level; occupancy never exceeds
+#   DEPTH; the level tracks accepted pushes and pops; the write pointer moves
+#   only for an accepted push and a rejected push writes nothing; the read
+#   pointer advances only on an accepted pop; an accepted push lands its first
+#   entry at the old write pointer; the head is the oldest entry.
+# Method: temporal induction; bounded success alone is insufficient.
+# Scope and abstractions: formal/README.md.
+
+read_verilog -formal src/v3_fifo.v
+chparam -set WIDTH 8 -set PUSH_MAX 4 v3_fifo
+prep -top v3_fifo
+flatten
+memory_map
+opt
+async2sync
+dffunmap
+sat -seq 4 -tempinduct -maxsteps 16 -set-assumes -prove-asserts -verify

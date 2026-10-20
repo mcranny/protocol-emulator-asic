@@ -6,6 +6,7 @@ VERILOG_SOURCES = \
 	$(CURDIR)/../src/v3_input_filter.v \
 	$(CURDIR)/../src/v3_progmem.v \
 	$(CURDIR)/../src/v3_crc.v \
+	$(CURDIR)/../src/v3_fifo.v \
 	$(CURDIR)/../src/v3_engine.v \
 	$(CURDIR)/../src/v3_host_spi.v \
 	$(CURDIR)/../src/v3_capture.v \

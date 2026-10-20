@@ -50,6 +50,8 @@ def test_the_command_map_is_exact() -> None:
         "START": 0x05,
         "STOP": 0x06,
         "VERSION": 0x07,
+        "TXPUSH": 0x08,
+        "RXPOP": 0x09,
     }
 
 

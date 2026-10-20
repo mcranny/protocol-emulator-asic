@@ -190,3 +190,57 @@ def start(exchange: Exchange, engines: Iterable[int]) -> None:
         _check_engine(engine)
         mask |= 1 << engine
     transact(exchange, [Frame(COMMANDS["START"], 0, mask)])
+
+
+#: Most bytes one TXPUSH frame can carry.
+_TX_FRAME_BYTES = 4
+
+
+def push_tx(exchange: Exchange, engine: int, data: bytes) -> None:
+    """Push ``data`` onto an engine's transmit queue, ready for ``PULL``.
+
+    The queue takes at most four bytes per frame, so ``data`` is split into
+    frames of up to four bytes, each carrying its byte count in ``addr`` and
+    the bytes most significant first (the first byte at ``payload[31:24]``).
+    One frame is 48 SPI clocks: at 1 MHz SPI a frame moves at most four bytes
+    every 48 µs, which keeps up with 115200 baud but not sustained 1 Mbaud, so
+    the caller must push ahead of the engine's consumption.
+
+    :param exchange: The SPI transfer function.
+    :param engine: The engine whose queue to fill, 0 or 1.
+    :param data: The bytes to push; an empty value sends nothing.
+    :raises ValueError: If ``engine`` is not 0 or 1.
+    :raises ProtocolError: If the chip rejects a frame, for example because the
+        queue did not have room for one of the groups.
+    """
+    _check_engine(engine)
+    command = _command("TXPUSH", engine)
+    requests = []
+    for start in range(0, len(data), _TX_FRAME_BYTES):
+        chunk = data[start : start + _TX_FRAME_BYTES]
+        payload = 0
+        for index, byte in enumerate(chunk):
+            payload |= byte << (8 * (_TX_FRAME_BYTES - 1 - index))
+        requests.append(Frame(command, len(chunk), payload))
+    transact(exchange, requests)
+
+
+def pop_rx(exchange: Exchange, engine: int) -> tuple[int, int] | None:
+    """Pop the oldest ``(value, meta)`` record from an engine's receive queue.
+
+    :param exchange: The SPI transfer function.
+    :param engine: The engine whose queue to read, 0 or 1.
+    :returns: The oldest ``(value, meta)`` record, or ``None`` when the queue
+        is empty (the chip rejects the frame and nothing is popped).
+    :raises ValueError: If ``engine`` is not 0 or 1.
+    """
+    _check_engine(engine)
+    request = Frame(_command("RXPOP", engine), 0, 0)
+    nop = Frame(COMMANDS["NOP"], 0, 0)
+    # The reply to a frame rides out on the following transfer; the first
+    # transfer returns an earlier, discarded reply.
+    exchange(request)
+    reply = exchange(nop)
+    if reply.cmd & REJECT_BIT:
+        return None
+    return (reply.payload >> 8) & _BYTE_MAX, reply.payload & _BYTE_MAX

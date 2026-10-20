@@ -65,6 +65,13 @@ following frame. MISO is gated by the raw CS_n, so the pin releases as soon as t
 deselects. A rejected command sets bit 7 of the echoed command byte. Engine selection uses
 another bit of the command byte.
 
+The command code is the low four bits of the command byte. `TXPUSH` (0x08) carries its byte count
+(one to four) in `addr` and the bytes in the payload, most significant first, and is rejected if
+the count is out of range or the bytes do not fit. `RXPOP` (0x09) returns the oldest receive
+record as `{value, meta}` in the low 16 payload bits, and rejects with a zero payload when the
+queue is empty, popping nothing. Both are accepted while the engines run, which is their purpose.
+Unused codes echo like `NOP`.
+
 | `ui_in` | Function | `uo_out` | Function |
 |---|---|---|---|
 | 0 | SPI SCK | 0 | SPI MISO |
@@ -75,9 +82,14 @@ another bit of the command byte.
 
 `uio[7:0]` are the protocol pins.
 
-**Queues.** Each engine has a 16-deep transmit byte queue and a 16-deep receive record queue in
-the programming model. The host command set does not yet read or write them, so the top level
-ties the queue ports inactive.
+**Queues.** Each engine has a 16-deep transmit byte queue and a 16-deep receive record queue, each
+a ring with a read pointer, a write pointer and a separate level counter. The host fills the
+transmit queue with `TXPUSH` and the engine drains it with `PULL`; the engine fills the receive
+queue with `RX` and the host drains it with `RXPOP`. A transmit push carries one to four bytes and
+is atomic, taken only if the whole group fits. The head is combinational from storage, so a `PULL`
+or an `RXPOP` reply sees the oldest entry in the same cycle it removes it. The queues keep their
+contents across start and stop; only reset clears them. An `RX` push to a full receive queue never
+happens in practice: the engine faults `E_QUEUE` first, so the drop-on-full is only a backstop.
 
 ## Instruction set
 
@@ -178,6 +190,7 @@ The property under test is when a pin changed, not only which instruction retire
 | Input filter | Three agreeing samples qualify a change; a disagreeing sample does not |
 | Program memory | Macro tie-offs, registered read of the word last written, `image_complete` exactly when all 256 bits are set, a write sets one bit, invalidate clears them |
 | CRC | Reset state, configuration only on `configure`, load takes the seed, and one step of the recurrence in both directions |
+| Queue | Reset state, the level never exceeds the depth and tracks accepted pushes and pops, a rejected push writes nothing, the read pointer advances only on an accepted pop, and the head is the oldest entry |
 | Engine | Return stack stays within two, commits strobe only owned pins, the engine never pushes a full receive queue or pulls an empty transmit queue, a bubble has no side effects, errors are sticky, a taken branch costs two cycles, and an empty-stack return faults and halts |
 | Host SPI | Two-flop synchronization, acceptance only at exactly 48 edges, rejection otherwise, MISO low while CS_n is high, response shifted on the following frame |
 | Capture | Count bound, truncation, reason 6 never reported, invalid reads masked, stopped state stable |
@@ -190,7 +203,9 @@ also run against the PDK behavioral model.
 
 Each block also has a cocotb differential or directed suite. The top-level suite loads both
 programs over SPI, starts both engines and compares every `uio` transition with a model composed
-of the same blocks.
+of the same blocks. It also pushes bytes with `TXPUSH` and checks that the engine pulls and drives
+them to match the model, and reads engine records back with `RXPOP`, including the empty-queue
+rejection.
 
 ## Not in this tree yet
 

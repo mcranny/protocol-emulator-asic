@@ -299,3 +299,179 @@ async def test_v3_full_chip_differential(dut):
         )
 
         model_now = (model_now + 1) & TIMEBASE_MASK
+
+
+#: Comparison length for the TX round trip. Override for quick runs.
+QUEUE_COMPARE_CYCLES = int(os.environ.get("V3_QUEUE_COMPARE_CYCLES", "2000"))
+
+#: Engine 0 pulls one byte per loop and drives pin 0 from its least significant
+#: bit; when the queue empties the PULL stalls and the pin stays low. The
+#: waveform therefore depends on the exact bytes the host pushed.
+TX_PROGRAM = """
+start:
+    PULL reg=0
+    LI reg=1, value=1
+    AND dst=0, src=1
+    BREQ reg=0, value=0, target=low
+    OUT pin=0, level=1, offset=4
+    JMP target=wait
+low:
+    OUT pin=0, level=0, offset=4
+wait:
+    ADVANCE ticks=40
+    WAITTIME
+    OUT pin=0, level=0, offset=4
+    ADVANCE ticks=40
+    WAITTIME
+    JMP target=start
+"""
+
+#: The bytes the host pushes; the low bits 1,0,1,0,1,0 drive pin 0.
+TX_BYTES = bytes([0x01, 0x02, 0x03, 0x00, 0x05, 0x08])
+
+#: Engine 0 pushes two receive records with a zeroed input shift register and
+#: then halts, so the host can pop them back.
+RX_PROGRAM = """
+    RX meta=0x5A
+    RX meta=0x3C
+    HALT
+"""
+
+
+def _build_tx_requests(image0, data):
+    """Write engine 0's image, configure it, push the bytes, then start it."""
+    write0 = COMMANDS["WRITE"]
+    requests = [Frame(write0, addr, word) for addr, word in enumerate(image0.words)]
+    requests.append(Frame(COMMANDS["CONFIG"], 0, OWNER0))
+    for start in range(0, len(data), 4):
+        chunk = data[start : start + 4]
+        payload = 0
+        for index, byte in enumerate(chunk):
+            payload |= byte << (8 * (3 - index))
+        requests.append(Frame(COMMANDS["TXPUSH"], len(chunk), payload))
+    requests.append(Frame(COMMANDS["START"], 0, 0b01))
+    return requests
+
+
+async def _run_setup(chip, requests):
+    """Clock every setup request, checking each reply; START skips its idle."""
+    await chip.frame(pack(*requests[0]))
+    for index in range(1, len(requests)):
+        is_start = index == len(requests) - 1
+        miso = await chip.frame(pack(*requests[index]), finish=not is_start)
+        _check_reply(index - 1, requests[index - 1], miso)
+
+
+async def _await_engine0(dut):
+    """Return the timebase value at the first cycle engine 0 reports running."""
+    for _ in range(64):
+        await RisingEdge(dut.clk)
+        await ReadOnly()
+        if (int(dut.uo_out.value) >> 1) & 1:
+            return int(dut.u_timebase.now.value)
+    raise AssertionError("engine 0 never started after START")
+
+
+@cocotb.test()
+async def test_v3_txpush_feeds_pull_matching_the_model(dut):
+    """Bytes pushed with TXPUSH drain through PULL into the exact model waveform."""
+    image0 = assemble(TX_PROGRAM)
+    chip = Chip(dut)
+    await chip.reset()
+
+    await _run_setup(chip, _build_tx_requests(image0, TX_BYTES))
+    assert int(dut.uio_oe.value) == 0, "a pin was driven before START"
+    now_post = await _await_engine0(dut)
+
+    start_now = (now_post - 1) & TIMEBASE_MASK
+    model_now = now_post
+
+    pins = [model.PinCell(open_drain=False) for _ in range(PIN_COUNT)]
+    engine0 = model.Engine(pins=pins, owner=OWNER0)
+    engine0.load(image0)
+    # The host pushed these before START, so the model queue starts filled too.
+    engine0.queues.push_tx(TX_BYTES)
+    engine0.start(start_now)
+
+    def model_uio():
+        out = oe = 0
+        for i, cell in enumerate(pins):
+            value, enable = cell.drive()
+            out |= (value & 1) << i
+            oe |= (enable & 1) << i
+        return out, oe
+
+    for cycle in range(QUEUE_COMPARE_CYCLES):
+        await FallingEdge(dut.clk)
+        chip._drive_spi(sck=0, cs_n=1, mosi=0)
+        dut.uio_in.value = 0
+        for cell in pins:
+            cell.observe(0, model_now)
+        await ReadOnly()
+
+        await RisingEdge(dut.clk)
+        engine0.step(model_now)
+        for cell in pins:
+            cell.tick(model_now)
+
+        await ReadOnly()
+        dut_now = int(dut.u_timebase.now.value)
+        assert dut_now == (model_now + 1) & TIMEBASE_MASK, (
+            f"cycle {cycle}: timebase diverged"
+        )
+        dut_out = int(dut.uio_out.value) & 0xFF
+        dut_oe = int(dut.uio_oe.value) & 0xFF
+        m_out, m_oe = model_uio()
+        assert (dut_out, dut_oe) == (m_out, m_oe), (
+            f"cycle {cycle} (now {model_now}): uio diverged, "
+            f"dut (out={dut_out:#04x}, oe={dut_oe:#04x}) "
+            f"model (out={m_out:#04x}, oe={m_oe:#04x})"
+        )
+        model_now = (model_now + 1) & TIMEBASE_MASK
+
+
+async def _transact(chip, requests):
+    """Send requests plus a trailing NOP, returning one reply per request."""
+    nop = Frame(COMMANDS["NOP"], 0, 0)
+    received = [unpack(await chip.frame(pack(*request))) for request in (*requests, nop)]
+    return received[1:]
+
+
+@cocotb.test()
+async def test_v3_rxpop_returns_records_then_rejects_when_empty(dut):
+    """RX records read back through RXPOP in order, then an empty queue rejects."""
+    image0 = assemble(RX_PROGRAM)
+    chip = Chip(dut)
+    await chip.reset()
+
+    # Work out the records the model produces for the same program.
+    pins = [model.PinCell(open_drain=False) for _ in range(PIN_COUNT)]
+    engine0 = model.Engine(pins=pins, owner=OWNER0)
+    engine0.load(image0)
+    engine0.start(0)
+    now = 0
+    while not engine0.halted and now < 16:
+        engine0.step(now)
+        for cell in pins:
+            cell.tick(now)
+        now += 1
+    expected = [engine0.queues.pop_rx(), engine0.queues.pop_rx()]
+    assert expected == [(0, 0x5A), (0, 0x3C)], f"model produced {expected}"
+
+    setup = [Frame(COMMANDS["WRITE"], addr, word) for addr, word in enumerate(image0.words)]
+    setup.append(Frame(COMMANDS["START"], 0, 0b01))
+    replies = await _transact(chip, setup)
+    for index, (request, reply) in enumerate(zip(setup, replies)):
+        assert not reply.cmd & REJECT_BIT, f"setup frame {index} {request} rejected"
+
+    # The engine has long since run and halted; pop the two records, then one
+    # more to see the empty-queue rejection.
+    pop = Frame(COMMANDS["RXPOP"], 0, 0)
+    replies = await _transact(chip, [pop, pop, pop])
+    for reply, (value, meta) in zip(replies, expected):
+        assert not reply.cmd & REJECT_BIT, "a non-empty RXPOP was rejected"
+        assert reply.payload == (value << 8) | meta, (
+            f"RXPOP payload {reply.payload:#06x} != expected {(value << 8) | meta:#06x}"
+        )
+    assert replies[2].cmd & REJECT_BIT, "an empty RXPOP was not rejected"
+    assert replies[2].payload == 0, "a rejected RXPOP must carry a zero payload"

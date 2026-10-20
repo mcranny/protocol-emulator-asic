@@ -13,6 +13,7 @@ project:
     - "v3_input_filter.v"
     - "v3_progmem.v"
     - "v3_crc.v"
+    - "v3_fifo.v"
     - "v3_engine.v"
     - "v3_host_spi.v"
     - "v3_capture.v"
