@@ -24,6 +24,8 @@ module v3_pin_cell (
     output wire        slot_free,     // engine stalls on commit when this is low
     output wire        pin_out,
     output wire        pin_oe,
+    output wire        drive_value,   // raw latched value, before open-drain gating
+    output wire        drive_oe,      // raw latched output enable, before gating
     output reg         missed,
     output reg  [23:0] edge_time,
     output reg         edge_polarity,
@@ -131,6 +133,13 @@ module v3_pin_cell (
     assign pin_oe  = (enable && rst_n)
                      ? (open_drain ? (value_r ? 1'b0 : oe_r) : oe_r)
                      : 1'b0;
+
+    // Raw latched state for the owning engine. Unlike pin_out/pin_oe these are
+    // never masked by the open-drain transform, so an engine that preserves the
+    // untouched half of a commit (SET keeps oe, OE keeps value) reads back the
+    // value it last drove rather than the gated pad level.
+    assign drive_value = value_r;
+    assign drive_oe    = oe_r;
 
 `ifdef FORMAL
     // Proof bookkeeping only: these registers exist under FORMAL and do not

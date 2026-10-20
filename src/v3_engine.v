@@ -39,8 +39,8 @@ module v3_engine (
 
     // Per-pin inputs from the external pin cells.
     input  wire [7:0]  pin_level,       // engine-visible (filtered) levels
-    input  wire [7:0]  pin_drv_value,   // currently driven value per pin
-    input  wire [7:0]  pin_drv_oe,      // currently driven oe per pin
+    input  wire [7:0]  pin_drv_value,   // raw latched value per pin (pre open-drain)
+    input  wire [7:0]  pin_drv_oe,      // raw latched oe per pin (pre open-drain)
     input  wire [7:0]  pin_missed,      // sticky missed-deadline per pin
     input  wire [191:0] pin_edge_time,  // last filtered edge timestamp per pin
     input  wire [7:0]  pin_edge_polarity,

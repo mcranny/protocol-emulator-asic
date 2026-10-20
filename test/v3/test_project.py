@@ -559,3 +559,113 @@ async def test_v3_partial_start_rejects_and_starts_neither_engine(dut):
             started = True
             break
     assert started, "engine 0 did not start from an accepted START"
+
+
+#: Open-drain exercise: SET then OE on a pin left released high. OE must keep
+#: the latched high value (open drain then releases) rather than reading the
+#: gated pad level (always low on an open-drain pin), which would wrongly pull
+#: the pin low. SET then keeps the latched enable while changing the value.
+OPEN_DRAIN_PROGRAM = """
+loop:
+    SET mask=0x01, value=0x01, offset=2
+    ADVANCE ticks=20
+    WAITTIME
+    OE mask=0x01, oe=0x01, offset=2
+    ADVANCE ticks=20
+    WAITTIME
+    SET mask=0x01, value=0x00, offset=2
+    ADVANCE ticks=20
+    WAITTIME
+    OE mask=0x01, oe=0x00, offset=2
+    ADVANCE ticks=20
+    WAITTIME
+    JMP target=loop
+"""
+
+#: Comparison length for the open-drain directed run. A few loop iterations is
+#: enough to exercise every SET/OE ordering on the open-drain pin.
+OPEN_DRAIN_CYCLES = int(os.environ.get("V3_OPEN_DRAIN_CYCLES", "400"))
+
+
+@cocotb.test()
+async def test_v3_open_drain_preserves_latched_state_across_set_and_oe(dut):
+    """SET and OE preserve the untouched half of the latched state on an
+    open-drain pin.
+
+    Engine 0 owns an open-drain pin 0. A commit must carry the engine's latched
+    value/oe for the half it does not change, not the open-drain-gated pad level
+    (which never drives high). The run is compared against the model, which
+    preserves the latched state, so any gated-level leak diverges.
+    """
+    image0 = assemble(OPEN_DRAIN_PROGRAM)
+    chip = Chip(dut)
+    await chip.reset()
+
+    # Write engine 0's image, configure it as owner 0x0F with pin 0 open-drain,
+    # then start it alone.
+    requests = [Frame(COMMANDS["WRITE"], addr, word) for addr, word in enumerate(image0.words)]
+    requests.append(Frame(COMMANDS["CONFIG"], 0, (0x01 << 8) | OWNER0))
+    requests.append(Frame(COMMANDS["START"], 0, 0b01))
+
+    await chip.frame(pack(*requests[0]))
+    for index in range(1, len(requests)):
+        is_start = index == len(requests) - 1
+        miso = await chip.frame(pack(*requests[index]), finish=not is_start)
+        _check_reply(index - 1, requests[index - 1], miso)
+
+    # Catch the cycle engine 0 latches running so the model aligns to the same
+    # timebase value.
+    now_post = None
+    for _ in range(64):
+        await RisingEdge(dut.clk)
+        await ReadOnly()
+        status = int(dut.uo_out.value)
+        if (status >> 1) & 1:
+            assert not (status >> 2) & 1, "engine 1 started from a 0b01 START"
+            now_post = int(dut.u_timebase.now.value)
+            break
+    assert now_post is not None, "engine 0 never started"
+
+    start_now = (now_post - 1) & TIMEBASE_MASK
+    model_now = now_post
+
+    pins = [model.PinCell(open_drain=bool(i == 0)) for i in range(PIN_COUNT)]
+    engine0 = model.Engine(pins=pins, owner=OWNER0, open_drain=0x01)
+    engine0.load(image0)
+    engine0.start(start_now)
+
+    def model_uio():
+        out = oe = 0
+        for i, cell in enumerate(pins):
+            value, enable = cell.drive()
+            out |= (value & 1) << i
+            oe |= (enable & 1) << i
+        return out, oe
+
+    for cycle in range(OPEN_DRAIN_CYCLES):
+        await FallingEdge(dut.clk)
+        chip._drive_spi(sck=0, cs_n=1, mosi=0)
+        dut.uio_in.value = 0
+        for cell in pins:
+            cell.observe(0, model_now)
+        await ReadOnly()
+
+        await RisingEdge(dut.clk)
+        engine0.step(model_now)
+        for cell in pins:
+            cell.tick(model_now)
+
+        await ReadOnly()
+        dut_out = int(dut.uio_out.value) & 0xFF
+        dut_oe = int(dut.uio_oe.value) & 0xFF
+        m_out, m_oe = model_uio()
+        if (dut_out, dut_oe) != (m_out, m_oe):
+            for i in range(PIN_COUNT):
+                dv, do = (dut_out >> i) & 1, (dut_oe >> i) & 1
+                mv, mo = (m_out >> i) & 1, (m_oe >> i) & 1
+                if (dv, do) != (mv, mo):
+                    raise AssertionError(
+                        f"cycle {cycle} (now {model_now}): pin {i} diverged, "
+                        f"dut (out={dv}, oe={do}) model (out={mv}, oe={mo})"
+                    )
+        model_now = (model_now + 1) & TIMEBASE_MASK

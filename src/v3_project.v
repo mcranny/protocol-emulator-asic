@@ -367,6 +367,7 @@ module tt_um_mcranny_protocol_emulator_v3 (
             wire        pin_od     = owned1 ? od1_r[gi] : od0_r[gi];
 
             wire        s_free, p_out, p_oe, p_missed, p_pol, p_level;
+            wire        p_dval, p_doe;
             wire [23:0] p_etime;
 
             v3_pin_cell u_pin (
@@ -384,6 +385,8 @@ module tt_um_mcranny_protocol_emulator_v3 (
                 .slot_free     (s_free),
                 .pin_out       (p_out),
                 .pin_oe        (p_oe),
+                .drive_value   (p_dval),
+                .drive_oe      (p_doe),
                 .missed        (p_missed),
                 .edge_time     (p_etime),
                 .edge_polarity (p_pol),
@@ -396,11 +399,11 @@ module tt_um_mcranny_protocol_emulator_v3 (
             assign pin_missed_w[gi]               = p_missed;
             assign pin_edge_pol_w[gi]             = p_pol;
             assign pin_level_w[gi]                = p_level;
-            // The pin cell exposes only its padded drive, not the raw latched
-            // value/oe. These match the engine-visible driven value/oe for the
-            // non-open-drain, enabled case (the differential uses open_drain=0).
-            assign pin_drv_value_w[gi]            = p_out;
-            assign pin_drv_oe_w[gi]               = p_oe;
+            // Feed the engines the raw latched value/oe so a commit that keeps
+            // the untouched half (SET keeps oe, OE keeps value) preserves the
+            // last driven state instead of the open-drain-gated pad level.
+            assign pin_drv_value_w[gi]            = p_dval;
+            assign pin_drv_oe_w[gi]               = p_doe;
             assign pin_edge_time_w[24*gi +: 24]   = p_etime;
 
 `ifdef FORMAL

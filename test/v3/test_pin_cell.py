@@ -244,6 +244,27 @@ async def test_v3_pin_cell_open_drain_never_drives_high(dut):
 
 
 @cocotb.test()
+async def test_v3_pin_cell_exposes_raw_latched_state(dut):
+    """``drive_value``/``drive_oe`` expose the raw latched state, not the gated pad.
+
+    On an open-drain pin a latched high releases the pad, so ``pin_out`` and
+    ``pin_oe`` read low while the raw latched value/oe are both high. The owning
+    engine needs the raw state to preserve the untouched half of a SET or OE.
+    """
+    b = Bench(dut)
+    await b.reset(open_drain=True, start_now=20)
+    # Latch value=1, oe=1: open drain releases the pad but the raw state holds.
+    await b.step(commit=1, commit_due=b.now, commit_value=1, commit_oe=1)
+    assert int(dut.pin_out.value) == 0 and int(dut.pin_oe.value) == 0, "pad not released"
+    assert int(dut.drive_value.value) == 1, "raw latched value not exposed"
+    assert int(dut.drive_oe.value) == 1, "raw latched oe not exposed"
+    # Latch value=0, oe=1: the pad actively drives low and the raw state agrees.
+    await b.step(commit=1, commit_due=b.now, commit_value=0, commit_oe=1)
+    assert int(dut.pin_out.value) == 0 and int(dut.pin_oe.value) == 1
+    assert int(dut.drive_value.value) == 0 and int(dut.drive_oe.value) == 1
+
+
+@cocotb.test()
 async def test_v3_pin_cell_deadline_across_the_timebase_wrap(dut):
     """A deadline on the far side of the 24-bit wrap still fires on time."""
     b = Bench(dut)
