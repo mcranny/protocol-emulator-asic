@@ -1,0 +1,11 @@
+SIM ?= icarus
+TOPLEVEL_LANG = verilog
+VERILOG_SOURCES = $(CURDIR)/../src/v3_capture.v
+TOPLEVEL = v3_capture
+COCOTB_TEST_MODULES = v3.test_capture
+# cocotb 1.9.x, as installed in WSL, reads MODULE instead.
+MODULE = v3.test_capture
+SIM_BUILD = sim_build/v3capture
+COCOTB_RESULTS_FILE = results_v3capture.xml
+export PYTHONPATH := $(CURDIR):$(CURDIR)/../host:$(PYTHONPATH)
+include $(shell cocotb-config --makefiles)/Makefile.sim
