@@ -866,3 +866,209 @@ async def test_v3_shared_crc_collision_stalls_the_losing_engine(dut):
         model_now = (model_now + 1) & TIMEBASE_MASK
 
     assert saw_stall, "the two engines never collided on the CRC; test is not exercising the stall"
+
+
+#: An engine 0 program that never halts, for the commands refused while it runs.
+LOOP_PROGRAM = "loop:\n    JMP target=loop\n"
+
+
+async def _load_and_start(chip, dut, image, engines=0b01):
+    """Write ``image`` to every commanded engine, then START them."""
+    requests = []
+    for engine in (0, 1):
+        if engines >> engine & 1:
+            write = COMMANDS["WRITE"] | (ENGINE_BIT if engine else 0)
+            requests += [Frame(write, addr, word) for addr, word in enumerate(image.words)]
+    requests.append(Frame(COMMANDS["START"], 0, engines))
+    replies = await _transact(chip, requests)
+    for index, (request, reply) in enumerate(zip(requests, replies)):
+        assert not reply.cmd & REJECT_BIT, f"setup frame {index} {request} rejected"
+
+
+@cocotb.test()
+async def test_v3_filter_defaults_to_every_pin_and_reads_back(dut):
+    """The filter mask resets to 0xFF; a read returns it and changes nothing."""
+    chip = Chip(dut)
+    await chip.reset()
+    assert int(dut.filter_mask_r.value) == 0xFF
+
+    replies = await _transact(chip, [Frame(COMMANDS["FILTER"], 1, 0x00)])
+    assert not replies[0].cmd & REJECT_BIT, "a FILTER read was rejected"
+    assert replies[0].payload == 0xFF
+    assert int(dut.filter_mask_r.value) == 0xFF, "a FILTER read wrote the mask"
+
+    # An accepted write replies with the new mask and a read sees it.
+    write, read = Frame(COMMANDS["FILTER"], 0, 0x3C), Frame(COMMANDS["FILTER"], 1, 0)
+    replies = await _transact(chip, [write, read])
+    assert not replies[0].cmd & REJECT_BIT, "a FILTER write was rejected while stopped"
+    assert [r.payload for r in replies] == [0x3C, 0x3C]
+
+
+@cocotb.test()
+async def test_v3_filter_write_is_rejected_while_an_engine_runs(dut):
+    """A FILTER write while an engine runs is rejected and leaves the mask."""
+    chip = Chip(dut)
+    await chip.reset()
+    await _load_and_start(chip, dut, assemble(LOOP_PROGRAM))
+    assert (int(dut.uo_out.value) >> 1) & 1, "engine 0 is not running"
+
+    # The engine bit is ignored: neither address form may write while running.
+    write0 = Frame(COMMANDS["FILTER"], 0, 0x00)
+    write1 = Frame(COMMANDS["FILTER"] | ENGINE_BIT, 0, 0x00)
+    read = Frame(COMMANDS["FILTER"], 1, 0)
+    replies = await _transact(chip, [write0, write1, read])
+    assert replies[0].cmd & REJECT_BIT, "a FILTER write was accepted while engine 0 ran"
+    assert replies[1].cmd & REJECT_BIT, "a FILTER write was accepted while engine 0 ran"
+    assert replies[0].payload == replies[1].payload == 0xFF, "a rejected write must reply the kept mask"
+    assert not replies[2].cmd & REJECT_BIT, "a FILTER read was rejected while running"
+    assert replies[2].payload == 0xFF
+    assert int(dut.filter_mask_r.value) == 0xFF
+
+
+@cocotb.test()
+async def test_v3_an_unfiltered_pin_sees_a_glitch_the_filter_rejects(dut):
+    """With pin 0 unfiltered and pin 1 filtered, a two-clock pulse on both
+    reaches pin 0's synchronized level and never reaches pin 1's."""
+    chip = Chip(dut)
+    await chip.reset()
+    replies = await _transact(chip, [Frame(COMMANDS["FILTER"], 0, 0xFE)])
+    assert not replies[0].cmd & REJECT_BIT
+    assert int(dut.filter_mask_r.value) == 0xFE
+
+    seen = 0
+    await FallingEdge(dut.clk)
+    dut.uio_in.value = 0b11
+    for cycle in range(12):
+        await RisingEdge(dut.clk)
+        await ReadOnly()
+        seen |= int(dut.pin_level_w.value) & 0b11
+        await FallingEdge(dut.clk)
+        if cycle == 1:
+            dut.uio_in.value = 0
+    assert seen & 0b01, "the unfiltered pin never saw the pulse"
+    assert not seen & 0b10, "the filtered pin passed a two-clock pulse"
+
+
+@cocotb.test()
+async def test_v3_caparm_arms_stops_and_records_read_back(dut):
+    """CAPARM arms and stops capture; CAPREAD returns each record's sample and
+    timestamp halves, a past-the-end index reads zero, and reading changes
+    nothing."""
+    chip = Chip(dut)
+    await chip.reset()
+
+    arm = Frame(COMMANDS["CAPARM"] | ENGINE_BIT, 0x00, 0x00A5_0000 | 0x81 << 8 | 0b00)
+    replies = await _transact(chip, [arm])
+    assert not replies[0].cmd & REJECT_BIT, "CAPARM arm was rejected"
+    assert replies[0].payload == 0x81 << 8, "arm reply must echo {mask, mode} only"
+    assert int(dut.u_capture.armed.value) == 1
+    assert int(dut.u_capture.triggered.value) == 1, "mode 0 triggers on arm"
+
+    # Raise pin 2 so capture records an input change.
+    await FallingEdge(dut.clk)
+    dut.uio_in.value = 0x04
+    await chip._ticks(8)
+
+    stop = Frame(COMMANDS["CAPARM"], 0x01, 0xFFFF_FFFF)
+    status = Frame(COMMANDS["STATUS"], 1, 0)
+    stamp = Frame(COMMANDS["STATUS"], 2, 0)
+    replies = await _transact(chip, [stop, status, stamp])
+    assert not replies[0].cmd & REJECT_BIT, "CAPARM stop was rejected"
+    assert replies[0].payload == 0, "a stop must reply zero"
+    word = replies[1].payload
+    count = word >> 6 & 0x3F
+    assert word & 0b111 == 0b010, f"expected stopped, triggered, not truncated: {word:#x}"
+    assert word >> 3 & 0x7 == 3, "a stop after a trigger reports reason 3"
+    assert count >= 2, f"expected the arm record and the pin change, count {count}"
+    trigger_stamp = replies[2].payload
+
+    reads = [Frame(COMMANDS["CAPREAD"], index << 1 | half, 0)
+             for index in range(count + 1) for half in (0, 1)]
+    replies = await _transact(chip, [*reads, status])
+    assert not any(r.cmd & REJECT_BIT for r in replies), "a CAPREAD was rejected"
+    records = [(replies[i].payload, replies[i + 1].payload) for i in range(0, 2 * count, 2)]
+    for index, (sample, timestamp) in enumerate(records):
+        assert int(dut.u_capture.records[index].value) == timestamp << 32 | sample, (
+            f"record {index} read back {timestamp:#x}:{sample:#x}"
+        )
+    assert records[0][1] == trigger_stamp, "the arm record carries the trigger timestamp"
+    assert records[0][0] & 0x08, "the arm record carries the trigger annotation"
+    assert records[0][0] >> 24 == 0 and records[-1][0] >> 24 == 0x04
+    stamps = [timestamp for _, timestamp in records]
+    assert stamps == sorted(set(stamps)), "record timestamps must increase"
+    assert replies[2 * count].payload == 0 and replies[2 * count + 1].payload == 0, (
+        "a past-the-end CAPREAD must read zero"
+    )
+    assert replies[-1].payload == word, "reading records changed the capture state"
+
+
+@cocotb.test()
+async def test_v3_start_does_not_arm_capture(dut):
+    """START runs an engine without arming capture."""
+    chip = Chip(dut)
+    await chip.reset()
+    await _load_and_start(chip, dut, assemble(LOOP_PROGRAM))
+    assert (int(dut.uo_out.value) >> 1) & 1, "engine 0 is not running"
+    replies = await _transact(chip, [Frame(COMMANDS["STATUS"], 1, 0)])
+    assert replies[0].payload == 0, f"START touched capture: {replies[0].payload:#x}"
+    assert int(dut.u_capture.armed.value) == 0
+
+
+@cocotb.test()
+async def test_v3_status_reports_engines_and_capture_and_rejects_others(dut):
+    """STATUS address 0 reports the selected engine, 1 capture state, 2 the
+    trigger timestamp; any other address is rejected with a zero payload."""
+    chip = Chip(dut)
+    await chip.reset()
+
+    # Engine 0 pushes two receive records and halts; engine 1 loops with three
+    # bytes left in its transmit queue.
+    image0, image1 = assemble(RX_PROGRAM), assemble(LOOP_PROGRAM)
+    requests = [Frame(COMMANDS["WRITE"], addr, word) for addr, word in enumerate(image0.words)]
+    requests += [Frame(COMMANDS["WRITE"] | ENGINE_BIT, addr, word)
+                 for addr, word in enumerate(image1.words)]
+    requests.append(Frame(COMMANDS["TXPUSH"] | ENGINE_BIT, 3, 0x0102_0300))
+    requests.append(Frame(COMMANDS["START"], 0, 0b11))
+    requests.append(Frame(COMMANDS["CAPARM"], 0, 0))
+    replies = await _transact(chip, requests)
+    assert not any(r.cmd & REJECT_BIT for r in replies), "setup was rejected"
+
+    queries = [
+        Frame(COMMANDS["STATUS"], 0, 0),
+        Frame(COMMANDS["STATUS"] | ENGINE_BIT, 0, 0),
+        Frame(COMMANDS["STATUS"] | ENGINE_BIT, 1, 0),
+        Frame(COMMANDS["STATUS"], 2, 0),
+        Frame(COMMANDS["STATUS"], 3, 0),
+        Frame(COMMANDS["STATUS"] | ENGINE_BIT, 0x80, 0),
+    ]
+    replies = await _transact(chip, queries)
+    assert not any(r.cmd & REJECT_BIT for r in replies[:4]), "a known STATUS address was rejected"
+
+    def fields(word):
+        return {
+            "running": word & 1, "halted": word >> 1 & 1, "stalled": word >> 2 & 1,
+            "fault": word >> 3 & 0xFF, "tx": word >> 11 & 0x1F, "rx": word >> 16 & 0x1F,
+            "missed": word >> 21 & 0xFF, "top": word >> 29,
+        }
+
+    missed = int(dut.pin_missed_w.value)
+    assert fields(replies[0].payload) == {
+        "running": 0, "halted": 1, "stalled": 0, "fault": int(dut.e0_fault.value),
+        "tx": 0, "rx": 2, "missed": missed, "top": 0,
+    }
+    assert fields(replies[1].payload) == {
+        "running": 1, "halted": 0, "stalled": 0, "fault": int(dut.e1_fault.value),
+        "tx": 3, "rx": 0, "missed": missed, "top": 0,
+    }
+
+    # A running engine's flag is recorded every clock, so the store has filled.
+    capture = replies[2].payload
+    assert capture & 0b111 == 0b110, f"expected triggered and truncated: {capture:#x}"
+    assert capture >> 3 & 0x7 == 5, "a full store reports reason 5"
+    assert capture >> 6 & 0x3F == 32
+    assert capture >> 12 == 0
+    assert replies[3].payload == int(dut.u_capture.trigger_timestamp.value) != 0
+
+    for reply in replies[4:]:
+        assert reply.cmd & REJECT_BIT, f"STATUS address {reply.addr} was not rejected"
+        assert reply.payload == 0, "a rejected STATUS must carry a zero payload"

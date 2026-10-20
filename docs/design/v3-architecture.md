@@ -28,9 +28,11 @@ the timestamp to 32 bits for capture, covering about 89 s.
 - An occupied slot is never overwritten.
 - Open-drain pins never drive high. A requested high becomes high impedance in the cell.
 - The cell releases its output enable when it is disabled or in reset.
-- The input path is a two-flop synchronizer. The engine sees a three-sample majority filter of
-  that input, plus the timestamp and polarity of the last filtered edge. Capture records the raw
-  synchronized input, not the filtered level.
+- The input path is a two-flop synchronizer. A three-sample majority filter runs on every pad;
+  one 8-bit mask set by `FILTER` chooses, per pin, whether the cell takes the filtered level (bit
+  set, the reset state) or the raw pad (bit clear). The engine sees the synchronized result, plus
+  the timestamp and polarity of its last edge. Capture records the raw synchronized input, not
+  the filtered or selected level.
 
 **Engines.** Two engines share the eight pins. Ownership masks are disjoint by construction:
 engine 0 keeps the mask it was given, and engine 1's mask has those bits removed. The masks and
@@ -59,7 +61,8 @@ request is lost; both operations land, engine 0's first.
 holds the raw synchronized inputs, the driven outputs and enables, and the engine flags. The
 store does not wrap. When it fills, capture stops with the truncated flag and reason 5, keeping
 the first 32 records. Reason 6 (timestamp saturation) is never produced. Capture observes; it
-does not control an engine.
+does not control an engine. The host arms and stops it with `CAPARM`, reads its state with
+`STATUS` and reads its records with `CAPREAD`; starting an engine does not arm it.
 
 **Host.** SPI mode 0, MSB first, exactly 48 clocks per frame: `cmd[7:0]`, `addr[7:0]`,
 `payload[31:0]`, first bit at bit 47. Any other length is rejected and discarded. SCK, CS_n and
@@ -76,8 +79,29 @@ queue is empty, popping nothing. Both are accepted while the engines run, which 
 `CLEAR` (0x0A) invalidates the addressed engine's program image by clearing its validity bitmap,
 so every word must be rewritten before the image is complete again; it is rejected while that
 engine runs. The loader issues it before each reload so an interrupted reload leaves the image
-incomplete rather than letting stale valid words make a partial reload startable. Codes 0x0B-0x0F
-echo like `NOP`.
+incomplete rather than letting stale valid words make a partial reload startable.
+
+The next four commands ignore the engine bit except where noted.
+
+- `FILTER` (0x0B) with `addr[0] = 0` writes `payload[7:0]` as the input-filter mask, effective
+  the next clock, and is rejected unless both engines are stopped. With `addr[0] = 1` it reads
+  the mask and is never rejected. Either way the reply is `{24'b0, mask}` holding the mask that
+  remains, so a rejected write shows the unchanged mask. The mask resets to `0xFF`.
+- `CAPARM` (0x0C) is always accepted. With `addr[0] = 0` it arms capture with `payload[1:0]` as
+  the trigger mode and `payload[15:8]` as the trigger mask, restarting a capture already running,
+  and replies `{16'b0, mask, 6'b0, mode}`. With `addr[0] = 1` it stops capture and replies zero.
+- `STATUS` (0x0D) address 0 returns the engine word for the engine the engine bit selects: `[0]`
+  running, `[1]` halted, `[2]` stalled, `[10:3]` fault code, `[15:11]` transmit level, `[20:16]`
+  receive level, `[28:21]` the eight pins' missed flags (shared, so the same for either engine).
+  Address 1 returns capture state: `[0]` armed, `[1]` triggered, `[2]` truncated, `[5:3]` reason,
+  `[11:6]` count. Address 2 returns the 32-bit trigger timestamp. Unused bits are zero. Any other
+  address is rejected with a zero payload.
+- `CAPREAD` (0x0E) is always accepted. `addr[5:1]` is the record index and `addr[0]` selects the
+  half: 0 returns the sample `{pins_in, pins_out, pins_oe, flags}`, 1 the timestamp. The read
+  port is combinational, so no prefetch is needed. An index at or past the count reads zero.
+  Reading changes no capture state.
+
+Code 0x0F echoes like `NOP`.
 
 | `ui_in` | Function | `uo_out` | Function |
 |---|---|---|---|
@@ -212,7 +236,7 @@ The property under test is when a pin changed, not only which instruction retire
 | Engine | Return stack stays within two, commits strobe only owned pins, the engine never pushes a full receive queue or pulls an empty transmit queue, a bubble has no side effects, errors are sticky, a taken branch costs two cycles, and an empty-stack return faults and halts |
 | Host SPI | Two-flop synchronization, acceptance only at exactly 48 edges, rejection otherwise, MISO low while CS_n is high, response shifted on the following frame |
 | Capture | Count bound, truncation, reason 6 never reported, invalid reads masked, stopped state stable |
-| Integration | The two ownership masks are disjoint, a commit reaches only an owned pin, reset or disable releases every output enable, an accepted start frame can strobe both engines while a rejected start strobes neither, and a program write is refused while that engine runs |
+| Integration | The two ownership masks are disjoint, a commit reaches only an owned pin, reset or disable releases every output enable, an accepted start frame can strobe both engines while a rejected start strobes neither, a program write is refused while that engine runs, and the filter mask is written only while both engines are stopped |
 
 The integration proof black-boxes the engines and the pin cells. The only assumption it adds is
 the pin cell's output-enable release, which the pin-cell proof establishes on its own. The
@@ -223,11 +247,12 @@ Each block also has a cocotb differential or directed suite. The top-level suite
 programs over SPI, starts both engines and compares every `uio` transition with a model composed
 of the same blocks. It also pushes bytes with `TXPUSH` and checks that the engine pulls and drives
 them to match the model, and reads engine records back with `RXPOP`, including the empty-queue
-rejection.
+rejection. Directed tests cover the filter mask (reset value, a write refused while an engine
+runs, a raw pin passing a pulse the filter rejects), capture arm, stop and record readback, and
+each `STATUS` address.
 
 ## Not in this tree yet
 
-- Firmware images for UART, SPI, I2C and WS2812.
 - The fresh Tiny Tapeout run and its evidence (source, netlist and GDS hashes).
 - The FPGA prototype. The intended board is an Arty A7-35T: a BRAM with the same registered-read
   contract as the SRAM wrapper, an MMCM making 48 MHz from 100 MHz, and a UART-to-SPI bridge.

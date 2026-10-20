@@ -35,7 +35,7 @@ module tt_um_mcranny_protocol_emulator_v3 (
 
     // ------------------------------------------------------------------
     // Host command codes (low four bits; bit 6 selects the engine, bits 5:4
-    // are ignored). Codes 0x0B-0x0F echo with no effect, like NOP.
+    // are ignored). Code 0x0F echoes with no effect, like NOP.
     // ------------------------------------------------------------------
     localparam [3:0] CMD_WRITE   = 4'h1;
     localparam [3:0] CMD_READ    = 4'h2;
@@ -47,6 +47,10 @@ module tt_um_mcranny_protocol_emulator_v3 (
     localparam [3:0] CMD_TXPUSH  = 4'h8;
     localparam [3:0] CMD_RXPOP   = 4'h9;
     localparam [3:0] CMD_CLEAR   = 4'hA;
+    localparam [3:0] CMD_FILTER  = 4'hB;
+    localparam [3:0] CMD_CAPARM  = 4'hC;
+    localparam [3:0] CMD_STATUS  = 4'hD;
+    localparam [3:0] CMD_CAPREAD = 4'hE;
 
     localparam [31:0] VERSION_WORD = 32'h0300_0000;
 
@@ -64,11 +68,13 @@ module tt_um_mcranny_protocol_emulator_v3 (
     );
 
     // ------------------------------------------------------------------
-    // Input filter: uio_in -> filtered -> pin cells' pin_in.
+    // Input filter: uio_in -> filtered -> filter-mask mux -> pin cells' pin_in.
     // The pin cell adds its own two-flop synchronizer, so the engine-visible
     // level is the debounced input synchronized into the clock domain. The
     // filter does not synchronize and the cell does not debounce, so there is
-    // no double-filter.
+    // no double-filter. A pin whose FILTER mask bit is clear bypasses the
+    // filter and feeds the raw pad to its cell; the filter keeps running on
+    // every pin either way.
     // ------------------------------------------------------------------
     wire [7:0] filtered;
 
@@ -138,6 +144,9 @@ module tt_um_mcranny_protocol_emulator_v3 (
     // ------------------------------------------------------------------
     reg [7:0] owner0_r, owner1_r;
     reg [7:0] od0_r,    od1_r;
+    // One input-filter mask for all eight pins (FILTER); a set bit filters
+    // that pin. Reset filters every pin.
+    reg [7:0] filter_mask_r;
 
     // Two edge watchers per engine: mask, value, edges, enable, abort.
     reg [7:0] e0_w0_mask, e0_w0_val, e0_w0_edges;
@@ -153,10 +162,16 @@ module tt_um_mcranny_protocol_emulator_v3 (
 
     wire both_stopped = !eng0_running && !eng1_running;
 
+    // FILTER addr[0] = 0 writes the mask, only while both engines are stopped;
+    // addr[0] = 1 reads it. The engine bit is ignored.
+    wire filter_write    = host_cmd_valid && (code == CMD_FILTER) && !host_addr[0];
+    wire filter_write_en = filter_write && both_stopped;
+
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             owner0_r <= 8'b0; owner1_r <= 8'b0;
             od0_r    <= 8'b0; od1_r    <= 8'b0;
+            filter_mask_r <= 8'hFF;
             e0_w0_mask <= 8'b0; e0_w0_val <= 8'b0; e0_w0_edges <= 8'b0;
             e0_w1_mask <= 8'b0; e0_w1_val <= 8'b0; e0_w1_edges <= 8'b0;
             e0_w0_en <= 1'b0; e0_w1_en <= 1'b0; e0_w0_abort <= 1'b0; e0_w1_abort <= 1'b0;
@@ -166,6 +181,7 @@ module tt_um_mcranny_protocol_emulator_v3 (
         end else if (!ena) begin
             // Hold configuration while the clock is disabled.
         end else if (host_cmd_valid) begin
+            if (filter_write_en) filter_mask_r <= host_payload[7:0];
             if (code == CMD_CONFIG && both_stopped) begin
                 if (engine_sel == 1'b0) begin
                     owner0_r <= host_payload[7:0];
@@ -323,11 +339,31 @@ module tt_um_mcranny_protocol_emulator_v3 (
     wire [15:0] rx_head_sel   = engine_sel ? rx1_head    : rx0_head;
     wire txpush_reject = (code == CMD_TXPUSH) && !tx_push_ok_sel;
     wire rxpop_reject  = (code == CMD_RXPOP)  && (rx_level_sel == 5'd0);
+    wire filter_reject = (code == CMD_FILTER) && !host_addr[0] && !both_stopped;
+    wire status_reject = (code == CMD_STATUS) && (host_addr > 8'd2);
     wire reject = write_reject || clear_reject || config_reject || watch_reject ||
-                  start_reject || txpush_reject || rxpop_reject;
+                  start_reject || txpush_reject || rxpop_reject || filter_reject ||
+                  status_reject;
 
     wire [31:0] read_data = engine_sel ? pm1_fetch_data : pm0_fetch_data;
     wire [7:0]  reply_cmd = reject ? (host_cmd | 8'h80) : host_cmd;
+
+    // FILTER replies with the mask that remains after the command: the new
+    // mask for an accepted write, the unchanged one otherwise.
+    wire [7:0] filter_reply = filter_write_en ? host_payload[7:0] : filter_mask_r;
+
+    // STATUS words. The engine word's missed flags are the shared pin cells',
+    // so they read the same for either engine.
+    wire [31:0] status_engine = engine_sel ?
+        {3'b0, pin_missed_w, rx1_level, tx1_level, e1_fault, e1_dstall, e1_halted, eng1_running} :
+        {3'b0, pin_missed_w, rx0_level, tx0_level, e0_fault, e0_dstall, e0_halted, eng0_running};
+    wire [31:0] status_capture =
+        {20'b0, cap_count, cap_reason, cap_truncated, cap_triggered, cap_armed};
+
+    // CAPREAD: addr[5:1] indexes a record, addr[0] picks the sample (0) or the
+    // timestamp (1). The capture read port is combinational and returns zero
+    // at or past count, so no prefetch is needed.
+    wire [31:0] capread_word = host_addr[0] ? cap_read_data[63:32] : cap_read_data[31:0];
 
     reg [31:0] reply_payload_r;
     always @* begin
@@ -336,6 +372,18 @@ module tt_um_mcranny_protocol_emulator_v3 (
         else if (code == CMD_READ) reply_payload_r = read_data;
         else if (code == CMD_RXPOP && rx_level_sel != 5'd0)
             reply_payload_r = {16'b0, rx_head_sel};
+        else if (code == CMD_FILTER) reply_payload_r = {24'b0, filter_reply};
+        else if (code == CMD_CAPARM && !host_addr[0])
+            reply_payload_r = {16'b0, host_payload[15:8], 6'b0, host_payload[1:0]};
+        else if (code == CMD_STATUS) begin
+            case (host_addr)
+                8'd0:    reply_payload_r = status_engine;
+                8'd1:    reply_payload_r = status_capture;
+                8'd2:    reply_payload_r = cap_trigger_timestamp;
+                default: reply_payload_r = 32'b0;
+            endcase
+        end
+        else if (code == CMD_CAPREAD) reply_payload_r = capread_word;
     end
 
     always @* host_reply = {reply_cmd, host_addr, reply_payload_r};
@@ -390,7 +438,7 @@ module tt_um_mcranny_protocol_emulator_v3 (
                 .commit_value  (pin_cval),
                 .commit_oe     (pin_coe),
                 .clear_missed  (pin_clrm),
-                .pin_in        (filtered[gi]),
+                .pin_in        (filter_mask_r[gi] ? filtered[gi] : uio_in[gi]),
                 .slot_free     (s_free),
                 .pin_out       (p_out),
                 .pin_oe        (p_oe),
@@ -473,9 +521,9 @@ module tt_um_mcranny_protocol_emulator_v3 (
         .value     (crc_value)
     );
 
-    // Observe-only / unused engine outputs. V3's host protocol exposes none of
-    // these, so they are consumed by the lint sink below rather than driven to
-    // a pin. They remain readable in simulation through the instance hierarchy.
+    // Engine outputs. STATUS reports halted, fault code and stalled; the rest
+    // are observe-only, consumed by the lint sink below rather than driven to
+    // a pin, and remain readable in simulation through the instance hierarchy.
     wire        e0_halted,  e1_halted;
     wire [7:0]  e0_fault,   e1_fault;
     wire [23:0] e0_cursor,  e1_cursor;
@@ -703,11 +751,9 @@ module tt_um_mcranny_protocol_emulator_v3 (
     assign uo_out[7:4] = 4'b0;
 
     // ------------------------------------------------------------------
-    // Capture: armed when an engine starts, recording the raw synchronized
+    // Capture: armed and stopped by CAPARM, recording the raw synchronized
     // pins, driven pins and engine flags against the shared {epoch, now}
-    // timestamp. V3's host protocol has no capture read-out, so its outputs
-    // are observable only in simulation; they are consumed below so lint sees
-    // no dangling nets.
+    // timestamp. STATUS reports its state and CAPREAD reads its records.
     // ------------------------------------------------------------------
     wire [63:0] cap_read_data;
     wire [5:0]  cap_count;
@@ -716,21 +762,27 @@ module tt_um_mcranny_protocol_emulator_v3 (
     wire [2:0]  cap_reason;
     wire [7:0]  cap_flags = {5'b0, err_agg, eng1_running, eng0_running};
 
+    // CAPARM addr[0] = 0 arms with payload[1:0] as the trigger mode and
+    // payload[15:8] as the trigger mask; addr[0] = 1 stops. The engine bit is
+    // ignored.
+    wire cap_arm  = host_cmd_valid && (code == CMD_CAPARM) && !host_addr[0];
+    wire cap_stop = host_cmd_valid && (code == CMD_CAPARM) &&  host_addr[0];
+
     v3_capture #(.DEPTH(32)) u_capture (
         .clk               (clk),
         .rst_n             (rst_n),
-        .arm               (eng0_start || eng1_start),
-        .stop              (1'b0),
+        .arm               (cap_arm),
+        .stop              (cap_stop),
         .disable_capture   (1'b0),
-        .trigger_mode      (2'b0),
-        .trigger_mask      (8'b0),
+        .trigger_mode      (host_payload[1:0]),
+        .trigger_mask      (host_payload[15:8]),
         .now               (tb_now),
         .epoch             (tb_epoch),
         .pins_in           (cap_sync1),
         .pins_out          (uio_out),
         .pins_oe           (pin_oe_w),
         .flags             (cap_flags),
-        .read_address      (5'b0),
+        .read_address      (host_addr[5:1]),
         .read_data         (cap_read_data),
         .count             (cap_count),
         .trigger_timestamp (cap_trigger_timestamp),
@@ -747,13 +799,9 @@ module tt_um_mcranny_protocol_emulator_v3 (
     wire _unused = &{1'b0,
                      ui_in[7:3],
                      host_frame_error,
-                     cap_read_data, cap_count, cap_trigger_timestamp,
-                     cap_armed, cap_triggered, cap_truncated, cap_reason,
-                     e0_halted, e1_halted, e0_fault, e1_fault,
                      e0_cursor, e1_cursor, e0_pc, e1_pc, e0_marker, e1_marker,
                      e0_r0, e0_r1, e0_r2, e0_r3, e1_r0, e1_r1, e1_r2, e1_r3,
                      e0_isr, e1_isr, e0_events, e1_events, e0_link, e1_link,
-                     e0_dstall, e1_dstall,
                      rx0_push_ok, rx1_push_ok};
 
 `ifdef FORMAL
@@ -775,6 +823,10 @@ module tt_um_mcranny_protocol_emulator_v3 (
         if (write0_en) assert (!eng0_running);
         if (write1_en) assert (!eng1_running);
     end
+
+    // Property 6: the filter mask is written only while both engines are
+    // stopped.
+    always @* if (filter_write_en) assert (both_stopped);
 
     // Property 3: !ena or !rst_n releases every output enable.
     always @* if (!ena || !rst_n) assert (uio_oe == 8'b0);

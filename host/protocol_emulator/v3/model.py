@@ -160,9 +160,9 @@ class InputFilter:
     the V3 top level instantiates.
 
     Fed from :class:`Synchronizer`, the combined pad-to-filtered latency is about
-    two synchronizer cycles plus up to three filter cycles. Unlike V2, V3 filters
-    all eight pins unconditionally: there is no filter mask (the V3 loader has no
-    command for one), so the engine-visible level is always the debounced value.
+    two synchronizer cycles plus up to three filter cycles. The filter runs on all
+    eight pins; the top level's ``FILTER`` mask then picks, per pin, the filtered
+    level or the raw pad for the pin cell. This model is the filter alone.
 
     :meth:`tick` uses the same read-then-advance convention as
     :class:`Synchronizer`: it returns the filtered byte valid this cycle, then

@@ -20,6 +20,12 @@ class FakeDevice:
         self.version = host.VERSION_WORD
         self.corrupt_read: dict[int, int] = {}
         self.queues = [model.Queues(), model.Queues()]
+        self.filter_mask = 0xFF
+        self.capture_arms: list[host.Frame] = []
+        self.capture_stops = 0
+        self.engine_status = [0, 0]
+        self.capture_status = {1: 0, 2: 0}
+        self.records: list[tuple[int, int]] = []
         self._pending = host.Frame(CMD["NOP"], 0, 0)
 
     def exchange(self, request: host.Frame) -> host.Frame:
@@ -68,6 +74,29 @@ class FakeDevice:
             if record is None:
                 return host.Frame(request.cmd | REJECT, request.addr, 0)
             payload = record[0] << 8 | record[1]
+        elif code == CMD["FILTER"]:
+            if not request.addr & 1:
+                if any(self.running):
+                    return host.Frame(request.cmd | REJECT, request.addr, self.filter_mask)
+                self.filter_mask = request.payload & 0xFF
+            payload = self.filter_mask
+        elif code == CMD["CAPARM"]:
+            if request.addr & 1:
+                self.capture_stops += 1
+            else:
+                self.capture_arms.append(request)
+                payload = request.payload & 0xFF03
+        elif code == CMD["STATUS"]:
+            if request.addr == 0:
+                payload = self.engine_status[engine]
+            elif request.addr in self.capture_status:
+                payload = self.capture_status[request.addr]
+            else:
+                return host.Frame(request.cmd | REJECT, request.addr, 0)
+        elif code == CMD["CAPREAD"]:
+            index = request.addr >> 1 & 0x1F
+            if index < len(self.records):
+                payload = self.records[index][request.addr & 1]
         return host.Frame(request.cmd, request.addr, payload)
 
 
@@ -338,4 +367,86 @@ def test_queue_commands_refuse_a_bad_engine(device: FakeDevice, engine: int) -> 
         loader.push_tx(device.exchange, engine, b"\x01")
     with pytest.raises(ValueError, match="engine"):
         loader.pop_rx(device.exchange, engine)
+    with pytest.raises(ValueError, match="engine"):
+        loader.read_engine_status(device.exchange, engine)
+    assert device.sent == []
+
+
+def test_set_filter_writes_the_mask_at_address_0(device: FakeDevice) -> None:
+    loader.set_filter(device.exchange, 0x5A)
+    assert [f for f in device.sent if f.cmd != CMD["NOP"]] == [host.Frame(CMD["FILTER"], 0, 0x5A)]
+    assert device.filter_mask == 0x5A
+
+
+def test_read_filter_reads_at_address_1_and_writes_nothing(device: FakeDevice) -> None:
+    assert loader.read_filter(device.exchange) == 0xFF
+    assert [f for f in device.sent if f.cmd != CMD["NOP"]] == [host.Frame(CMD["FILTER"], 1, 0)]
+    assert device.filter_mask == 0xFF
+
+
+def test_set_filter_raises_while_an_engine_runs(device: FakeDevice) -> None:
+    device.running[1] = True
+    with pytest.raises(loader.ProtocolError, match="FILTER"):
+        loader.set_filter(device.exchange, 0x00)
+    assert device.filter_mask == 0xFF
+
+
+def test_set_filter_refuses_a_nine_bit_mask(device: FakeDevice) -> None:
+    with pytest.raises(ValueError, match="mask"):
+        loader.set_filter(device.exchange, 0x100)
+    assert device.sent == []
+
+
+def test_arm_capture_packs_mode_low_and_mask_in_the_second_byte(device: FakeDevice) -> None:
+    loader.arm_capture(device.exchange, mode=1, mask=0x81)
+    assert device.capture_arms == [host.Frame(CMD["CAPARM"], 0, 0x8101)]
+
+
+def test_stop_capture_sends_caparm_at_address_1(device: FakeDevice) -> None:
+    loader.stop_capture(device.exchange)
+    assert [f for f in device.sent if f.cmd != CMD["NOP"]] == [host.Frame(CMD["CAPARM"], 1, 0)]
+    assert device.capture_stops == 1
+
+
+@pytest.mark.parametrize(("mode", "mask"), [(4, 0), (-1, 0), (0, 0x100)])
+def test_arm_capture_refuses_a_bad_mode_or_mask(device: FakeDevice, mode: int, mask: int) -> None:
+    with pytest.raises(ValueError):
+        loader.arm_capture(device.exchange, mode=mode, mask=mask)
+    assert device.sent == []
+
+
+def test_read_engine_status_decodes_every_field(device: FakeDevice) -> None:
+    word = 1 | 0 << 1 | 1 << 2 | 0x2A << 3 | 7 << 11 | 16 << 16 | 0x81 << 21
+    device.engine_status[1] = word
+    status = loader.read_engine_status(device.exchange, 1)
+    assert status == loader.EngineStatus(
+        running=True, halted=False, stalled=True, fault=0x2A, tx_level=7, rx_level=16, missed=0x81
+    )
+    (sent,) = [f for f in device.sent if f.cmd != CMD["NOP"]]
+    assert sent == host.Frame(CMD["STATUS"] | host.ENGINE_BIT, 0, 0)
+
+
+def test_read_capture_status_decodes_both_words(device: FakeDevice) -> None:
+    device.capture_status[1] = 0 | 1 << 1 | 1 << 2 | 5 << 3 | 32 << 6
+    device.capture_status[2] = 0x0102_0304
+    status = loader.read_capture_status(device.exchange)
+    assert status == loader.CaptureStatus(
+        armed=False, triggered=True, truncated=True, reason=5, record_count=32,
+        trigger_timestamp=0x0102_0304,
+    )
+    sent = [f for f in device.sent if f.cmd != CMD["NOP"]]
+    assert [f.addr for f in sent] == [1, 2]
+
+
+def test_read_capture_reads_sample_then_timestamp_per_record(device: FakeDevice) -> None:
+    device.records = [(0x11223344, 100), (0x55667788, 205)]
+    assert loader.read_capture(device.exchange, 2) == [(0x11223344, 100), (0x55667788, 205)]
+    reads = [f for f in device.sent if f.cmd == CMD["CAPREAD"]]
+    assert [f.addr for f in reads] == [0, 1, 2, 3]
+
+
+@pytest.mark.parametrize("count", [-1, 33])
+def test_read_capture_refuses_an_out_of_range_count(device: FakeDevice, count: int) -> None:
+    with pytest.raises(ValueError, match="count"):
+        loader.read_capture(device.exchange, count)
     assert device.sent == []

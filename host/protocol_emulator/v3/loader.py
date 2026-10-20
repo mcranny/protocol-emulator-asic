@@ -13,6 +13,7 @@ for each engine, then ``start``. ``load`` writes every one of the
 program is never started from memory that was not verified.
 """
 from collections.abc import Callable, Iterable, Sequence
+from typing import NamedTuple
 
 from . import PROGRAM_WORDS
 from .host import COMMANDS, ENGINE_BIT, REJECT_BIT, VERSION_WORD, Frame
@@ -251,3 +252,150 @@ def pop_rx(exchange: Exchange, engine: int) -> tuple[int, int] | None:
     if reply.cmd & REJECT_BIT:
         return None
     return (reply.payload >> 8) & _BYTE_MAX, reply.payload & _BYTE_MAX
+
+
+def set_filter(exchange: Exchange, mask: int) -> None:
+    """Set the input-filter mask shared by all eight pins.
+
+    A set bit passes that pin through the three-sample input filter; a clear
+    bit feeds the raw pad to the pin cell. The reset mask is ``0xFF``. The new
+    mask applies on the clock after the write.
+
+    :param exchange: The SPI transfer function.
+    :param mask: The 8-bit mask, bit ``n`` for ``uio[n]``.
+    :raises ValueError: If ``mask`` is wider than 8 bits. Nothing is sent.
+    :raises ProtocolError: If the chip rejects the write, which it does while
+        either engine runs.
+    """
+    _check_byte("mask", mask)
+    transact(exchange, [Frame(COMMANDS["FILTER"], 0, mask)])
+
+
+def read_filter(exchange: Exchange) -> int:
+    """Return the input-filter mask.
+
+    :param exchange: The SPI transfer function.
+    :returns: The 8-bit mask.
+    """
+    (reply,) = transact(exchange, [Frame(COMMANDS["FILTER"], 1, 0)])
+    return reply.payload & _BYTE_MAX
+
+
+#: Largest capture trigger mode: 0 immediate, 1 masked input change,
+#: 2 masked engine-running flag, 3 aggregate error.
+_TRIGGER_MODE_MAX = 3
+
+
+def arm_capture(exchange: Exchange, mode: int = 0, mask: int = 0) -> None:
+    """Arm capture, restarting it if it is already running.
+
+    :param exchange: The SPI transfer function.
+    :param mode: The trigger mode, 0 to 3.
+    :param mask: The 8-bit trigger mask the mode applies.
+    :raises ValueError: If ``mode`` is out of range or ``mask`` is wider than
+        8 bits. Nothing is sent.
+    """
+    if not 0 <= mode <= _TRIGGER_MODE_MAX:
+        raise ValueError(f"trigger mode must be 0 to {_TRIGGER_MODE_MAX}, got {mode}")
+    _check_byte("mask", mask)
+    transact(exchange, [Frame(COMMANDS["CAPARM"], 0, mode | mask << 8)])
+
+
+def stop_capture(exchange: Exchange) -> None:
+    """Stop capture, keeping the records taken so far.
+
+    :param exchange: The SPI transfer function.
+    """
+    transact(exchange, [Frame(COMMANDS["CAPARM"], 1, 0)])
+
+
+class EngineStatus(NamedTuple):
+    """An engine's ``STATUS`` word, address 0."""
+
+    running: bool
+    halted: bool
+    stalled: bool
+    fault: int
+    tx_level: int
+    rx_level: int
+    #: The eight pins' sticky missed-deadline flags, the same for either engine.
+    missed: int
+
+
+class CaptureStatus(NamedTuple):
+    """Capture's ``STATUS`` words, addresses 1 and 2."""
+
+    armed: bool
+    triggered: bool
+    truncated: bool
+    reason: int
+    record_count: int
+    trigger_timestamp: int
+
+
+def read_engine_status(exchange: Exchange, engine: int) -> EngineStatus:
+    """Read and decode an engine's status word.
+
+    :param exchange: The SPI transfer function.
+    :param engine: The engine to read, 0 or 1.
+    :returns: The decoded :class:`EngineStatus`.
+    :raises ValueError: If ``engine`` is not 0 or 1. Nothing is sent.
+    """
+    _check_engine(engine)
+    (reply,) = transact(exchange, [Frame(_command("STATUS", engine), 0, 0)])
+    word = reply.payload
+    return EngineStatus(
+        running=bool(word & 1),
+        halted=bool(word >> 1 & 1),
+        stalled=bool(word >> 2 & 1),
+        fault=word >> 3 & 0xFF,
+        tx_level=word >> 11 & 0x1F,
+        rx_level=word >> 16 & 0x1F,
+        missed=word >> 21 & 0xFF,
+    )
+
+
+def read_capture_status(exchange: Exchange) -> CaptureStatus:
+    """Read and decode capture's state and trigger timestamp.
+
+    :param exchange: The SPI transfer function.
+    :returns: The decoded :class:`CaptureStatus`.
+    """
+    state, stamp = transact(
+        exchange, [Frame(COMMANDS["STATUS"], 1, 0), Frame(COMMANDS["STATUS"], 2, 0)]
+    )
+    word = state.payload
+    return CaptureStatus(
+        armed=bool(word & 1),
+        triggered=bool(word >> 1 & 1),
+        truncated=bool(word >> 2 & 1),
+        reason=word >> 3 & 0x7,
+        record_count=word >> 6 & 0x3F,
+        trigger_timestamp=stamp.payload,
+    )
+
+
+#: Records the capture store holds.
+_CAPTURE_DEPTH = 32
+
+
+def read_capture(exchange: Exchange, count: int) -> list[tuple[int, int]]:
+    """Read the first ``count`` capture records without disturbing capture.
+
+    Each record is two ``CAPREAD`` frames: ``addr = index << 1`` returns the
+    sample ``{pins_in, pins_out, pins_oe, flags}`` and ``addr = index << 1 | 1``
+    returns the 32-bit timestamp. Take ``count`` from the ``record_count`` of
+    :func:`read_capture_status`; a record at or past the chip's count reads
+    as zero.
+
+    :param exchange: The SPI transfer function.
+    :param count: The number of records to read, 0 to 32.
+    :returns: One ``(sample, timestamp)`` pair per record, oldest first.
+    :raises ValueError: If ``count`` is out of range. Nothing is sent.
+    """
+    if not 0 <= count <= _CAPTURE_DEPTH:
+        raise ValueError(f"count must be 0 to {_CAPTURE_DEPTH}, got {count}")
+    read = COMMANDS["CAPREAD"]
+    requests = [Frame(read, index << 1 | half, 0) for index in range(count) for half in (0, 1)]
+    replies = transact(exchange, requests)
+    return [(replies[i].payload, replies[i + 1].payload) for i in range(0, len(replies), 2)]
