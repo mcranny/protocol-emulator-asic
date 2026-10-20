@@ -35,6 +35,15 @@ module v3_host_spi (
     output reg         frame_error,
     output reg  [7:0]  cmd, addr,
     output reg  [31:0] payload,
+    // The accepted frame, exposed one clock before cmd_valid. early_valid
+    // pulses on the clock the 48-bit frame is accepted (the clock cmd_valid is
+    // scheduled), carrying the command and address from the receive shift
+    // register. The top uses it to pre-fetch a READ's program word so the
+    // registered memory output is ready by the time cmd_valid captures the
+    // reply. It changes nothing in this module's own response path.
+    output wire        early_valid,
+    output wire [7:0]  early_cmd,
+    output wire [7:0]  early_addr,
     // Response word for the command being delivered; sampled while
     // cmd_valid is high.
     input  wire [47:0] reply
@@ -50,6 +59,14 @@ module v3_host_spi (
     reg [47:0] rx_shift, tx_shift;
 
     assign miso = rst_n && ena && !cs_n ? tx_shift[47] : 1'b0;
+
+    // A 48-bit frame is accepted on the clock the synchronized CS_n rises; that
+    // is the clock cmd_valid is scheduled for the next edge, so this pulses one
+    // clock early. The command and address are taken straight from the receive
+    // shift register, which already holds the completed frame.
+    assign early_valid = !cs_prev && cs_sync[1] && (bit_count == FRAME_BITS);
+    assign early_cmd   = rx_shift[47:40];
+    assign early_addr  = rx_shift[39:32];
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin

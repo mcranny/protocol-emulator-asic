@@ -475,3 +475,40 @@ async def test_v3_rxpop_returns_records_then_rejects_when_empty(dut):
         )
     assert replies[2].cmd & REJECT_BIT, "an empty RXPOP was not rejected"
     assert replies[2].payload == 0, "a rejected RXPOP must carry a zero payload"
+
+
+@cocotb.test()
+async def test_v3_host_read_returns_the_addressed_word(dut):
+    """A host READ returns the word last written to its own address.
+
+    WRITE A=x, WRITE B=y (x != y), then READ A, READ B, READ A. Each reply must
+    carry the word written to the address in its own frame, not the previous
+    memory output.
+    """
+    chip = Chip(dut)
+    await chip.reset()
+
+    addr_a, addr_b = 0x05, 0x11
+    word_x, word_y = 0xAAAA_0001, 0xBBBB_0002
+    assert word_x != word_y
+
+    requests = [
+        Frame(COMMANDS["WRITE"], addr_a, word_x),
+        Frame(COMMANDS["WRITE"], addr_b, word_y),
+        Frame(COMMANDS["READ"], addr_a, 0),
+        Frame(COMMANDS["READ"], addr_b, 0),
+        Frame(COMMANDS["READ"], addr_a, 0),
+    ]
+    replies = await _transact(chip, requests)
+    for index, request in enumerate(requests):
+        assert not replies[index].cmd & REJECT_BIT, f"frame {index} {request} rejected"
+        assert replies[index].addr == request.addr, "reply addr must echo the request"
+    assert replies[2].payload == word_x, (
+        f"READ A got {replies[2].payload:#010x}, expected {word_x:#010x}"
+    )
+    assert replies[3].payload == word_y, (
+        f"READ B got {replies[3].payload:#010x}, expected {word_y:#010x}"
+    )
+    assert replies[4].payload == word_x, (
+        f"READ A (second) got {replies[4].payload:#010x}, expected {word_x:#010x}"
+    )

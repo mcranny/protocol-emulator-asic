@@ -100,6 +100,9 @@ module tt_um_mcranny_protocol_emulator_v3 (
     wire [7:0]  host_cmd;
     wire [7:0]  host_addr;
     wire [31:0] host_payload;
+    wire        host_early_valid;
+    wire [7:0]  host_early_cmd;
+    wire [7:0]  host_early_addr;
     reg  [47:0] host_reply;   // combinational response for the current command
 
     v3_host_spi u_host (
@@ -115,11 +118,19 @@ module tt_um_mcranny_protocol_emulator_v3 (
         .cmd         (host_cmd),
         .addr        (host_addr),
         .payload     (host_payload),
+        .early_valid (host_early_valid),
+        .early_cmd   (host_early_cmd),
+        .early_addr  (host_early_addr),
         .reply       (host_reply)
     );
 
     wire [3:0] code       = host_cmd[3:0];
     wire       engine_sel = host_cmd[6];       // ENGINE_BIT
+
+    // The accepted frame, one clock before cmd_valid, used to pre-fetch a READ
+    // so the registered program word is ready when the reply is captured.
+    wire [3:0] early_code       = host_early_cmd[3:0];
+    wire       early_engine_sel = host_early_cmd[6];
 
     // ------------------------------------------------------------------
     // Configuration registers (written by CONFIG and WATCH while stopped).
@@ -239,10 +250,23 @@ module tt_um_mcranny_protocol_emulator_v3 (
     wire       rxpop0  = rxpop  && (engine_sel == 1'b0);
     wire       rxpop1  = rxpop  && (engine_sel == 1'b1);
 
-    wire        pm0_fetch_en   = eng0_running || eng0_start || read0;
-    wire [7:0]  pm0_fetch_addr = (eng0_running || eng0_start) ? eng0_fetch_addr : host_addr;
-    wire        pm1_fetch_en   = eng1_running || eng1_start || read1;
-    wire [7:0]  pm1_fetch_addr = (eng1_running || eng1_start) ? eng1_fetch_addr : host_addr;
+    // A READ reads a registered program word, valid the clock after its
+    // address is presented, but the host reply is captured on the cmd_valid
+    // clock. Pre-fetch the addressed word one clock early, off the early frame
+    // the host transport exposes, so the word is ready before cmd_valid. The
+    // pre-fetch only applies while the target engine is stopped; a running
+    // engine keeps the fetch port, and A_MEN stays low while it stalls.
+    wire read0_pre = host_early_valid && (early_code == CMD_READ) &&
+                     (early_engine_sel == 1'b0) && !eng0_running;
+    wire read1_pre = host_early_valid && (early_code == CMD_READ) &&
+                     (early_engine_sel == 1'b1) && !eng1_running;
+
+    wire        pm0_fetch_en   = eng0_running || eng0_start || read0 || read0_pre;
+    wire [7:0]  pm0_fetch_addr = (eng0_running || eng0_start) ? eng0_fetch_addr :
+                                 read0_pre ? host_early_addr : host_addr;
+    wire        pm1_fetch_en   = eng1_running || eng1_start || read1 || read1_pre;
+    wire [7:0]  pm1_fetch_addr = (eng1_running || eng1_start) ? eng1_fetch_addr :
+                                 read1_pre ? host_early_addr : host_addr;
 
     v3_progmem u_progmem0 (
         .clk            (clk),
