@@ -262,7 +262,7 @@ async def test_v3_full_chip_differential(dut):
 
         await RisingEdge(dut.clk)
         engine0.step(model_now)
-        engine1.step(model_now)
+        engine1.step(model_now, crc_grant=not engine0.crc_used)
         for cell in pins:
             cell.tick(model_now)
 
@@ -739,3 +739,130 @@ async def test_v3_clear_is_rejected_while_the_engine_runs(dut):
     await RisingEdge(dut.clk)
     await ReadOnly()
     assert (int(dut.uo_out.value) >> 1) & 1, "engine 0 stopped after a rejected CLEAR"
+
+
+def _crc_collision_program(pin: int) -> str:
+    """A CRC loop that drives ``pin`` from the running CRC's low bit.
+
+    Both engines run this in lockstep, so they request the shared CRC in the
+    same cycles and collide. The pin waveform depends on the exact sequence of
+    CRC shifts, so a dropped (rather than stalled) collision changes the output.
+    """
+    return f"""
+    CRCCFG poly=0x1021, msb_first=1
+    LI reg=0, value=0xFFFF
+    CRCLOAD reg=0
+loop:
+    LI reg=1, value=1
+    CRCBIT reg=1
+    CRCGET reg=2
+    LI reg=3, value=1
+    AND dst=2, src=3
+    BREQ reg=2, value=0, target=low
+    OUT pin={pin}, level=1, offset=2
+    JMP target=wait
+low:
+    OUT pin={pin}, level=0, offset=2
+wait:
+    ADVANCE ticks=6
+    WAITTIME
+    JMP target=loop
+"""
+
+
+#: Comparison length for the CRC-collision differential.
+CRC_COLLISION_CYCLES = int(os.environ.get("V3_CRC_COLLISION_CYCLES", "600"))
+
+
+@cocotb.test()
+async def test_v3_shared_crc_collision_stalls_the_losing_engine(dut):
+    """Two engines colliding on the shared CRC serialize, matching the model.
+
+    Both engines run the same CRC loop, so they request the CRC in the same
+    cycles. Engine 0 wins; engine 1 stalls and retries. The model applies the
+    same grant, so the compared pin waveforms only agree if the RTL stalls the
+    loser instead of dropping its request.
+    """
+    image0 = assemble(_crc_collision_program(0))
+    image1 = assemble(_crc_collision_program(4))
+
+    chip = Chip(dut)
+    await chip.reset()
+
+    requests = [Frame(COMMANDS["WRITE"], addr, word) for addr, word in enumerate(image0.words)]
+    requests += [
+        Frame(COMMANDS["WRITE"] | ENGINE_BIT, addr, word) for addr, word in enumerate(image1.words)
+    ]
+    requests.append(Frame(COMMANDS["CONFIG"], 0, OWNER0))
+    requests.append(Frame(COMMANDS["CONFIG"] | ENGINE_BIT, 0, OWNER1))
+    requests.append(Frame(COMMANDS["START"], 0, 0b11))
+
+    await chip.frame(pack(*requests[0]))
+    for index in range(1, len(requests)):
+        is_start = index == len(requests) - 1
+        miso = await chip.frame(pack(*requests[index]), finish=not is_start)
+        _check_reply(index - 1, requests[index - 1], miso)
+
+    now_post = None
+    for _ in range(64):
+        await RisingEdge(dut.clk)
+        await ReadOnly()
+        status = int(dut.uo_out.value)
+        if (status >> 1) & 1:
+            assert (status >> 2) & 1, "the two engines did not start on one cycle"
+            now_post = int(dut.u_timebase.now.value)
+            break
+    assert now_post is not None, "the engines never started"
+
+    start_now = (now_post - 1) & TIMEBASE_MASK
+    model_now = now_post
+
+    pins = [model.PinCell(open_drain=False) for _ in range(PIN_COUNT)]
+    crc = model.Crc()
+    engine0 = model.Engine(pins=pins, owner=OWNER0, crc=crc)
+    engine1 = model.Engine(pins=pins, owner=OWNER1, crc=crc)
+    engine0.load(image0)
+    engine1.load(image1)
+    engine0.start(start_now)
+    engine1.start(start_now)
+
+    def model_uio():
+        out = oe = 0
+        for i, cell in enumerate(pins):
+            value, enable = cell.drive()
+            out |= (value & 1) << i
+            oe |= (enable & 1) << i
+        return out, oe
+
+    saw_stall = False
+    for cycle in range(CRC_COLLISION_CYCLES):
+        await FallingEdge(dut.clk)
+        chip._drive_spi(sck=0, cs_n=1, mosi=0)
+        dut.uio_in.value = 0
+        for cell in pins:
+            cell.observe(0, model_now)
+        await ReadOnly()
+
+        await RisingEdge(dut.clk)
+        engine0.step(model_now)
+        engine1.step(model_now, crc_grant=not engine0.crc_used)
+        saw_stall = saw_stall or (engine1.stalled and engine0.crc_used)
+        for cell in pins:
+            cell.tick(model_now)
+
+        await ReadOnly()
+        dut_out = int(dut.uio_out.value) & 0xFF
+        dut_oe = int(dut.uio_oe.value) & 0xFF
+        m_out, m_oe = model_uio()
+        if (dut_out, dut_oe) != (m_out, m_oe):
+            for i in range(PIN_COUNT):
+                dv, do = (dut_out >> i) & 1, (dut_oe >> i) & 1
+                mv, mo = (m_out >> i) & 1, (m_oe >> i) & 1
+                if (dv, do) != (mv, mo):
+                    raise AssertionError(
+                        f"cycle {cycle} (now {model_now}): pin {i} diverged, "
+                        f"dut (out={dv}, oe={do}) model (out={mv}, oe={mo})"
+                    )
+        model_now = (model_now + 1) & TIMEBASE_MASK
+
+    assert saw_stall, "the two engines never collided on the CRC; test is not exercising the stall"

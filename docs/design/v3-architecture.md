@@ -52,7 +52,8 @@ end of the register is the polynomial tap: MSB first shifts left and uses the no
 polynomial (CRC-16/CCITT, 0x1021); LSB first shifts right and uses the reflected polynomial
 (CRC-16/ARC, 0xA001, and USB CRC-5, 0x0014). One message bit moves per `shift` strobe. The unit
 performs one operation per clock. Engine 0 has fixed priority. If both engines request a CRC
-operation in the same cycle, engine 1's request is dropped.
+operation in the same cycle, engine 0 proceeds and engine 1 stalls that cycle and retries, so no
+request is lost; both operations land, engine 0's first.
 
 **Capture.** 32 records. Each record is stamped with the shared `{epoch, now}` timestamp and
 holds the raw synchronized inputs, the driven outputs and enables, and the engine flags. The

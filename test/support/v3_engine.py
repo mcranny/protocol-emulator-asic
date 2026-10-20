@@ -26,6 +26,7 @@ On a mismatch the last 32 cycles of both sides are written to
 import json
 import os
 from collections import deque
+from collections.abc import Callable
 
 import cocotb
 from cocotb.triggers import FallingEdge, ReadOnly, RisingEdge
@@ -112,6 +113,9 @@ class EngineHarness:
         self.mem = list(image.words)
         self.prev_fetch_addr = 0
         self.history = deque(maxlen=32)
+        #: CRC grant presented to the DUT and model this cycle (1 = granted).
+        self._cur_grant = 1
+        self._grant_fn: "Callable[[int], int] | None" = None
 
     # -- static configuration -------------------------------------------
     def _drive_static(self):
@@ -147,6 +151,7 @@ class EngineHarness:
         d.pin_missed.value = 0
         d.pin_edge_time.value = 0
         d.pin_edge_polarity.value = 0
+        d.crc_grant.value = 1
         d.slot_free.value = 0xFF
         d.tx_level.value = 0
         d.tx_data.value = 0
@@ -201,6 +206,7 @@ class EngineHarness:
         d.pin_missed.value = fields["missed"]
         d.pin_edge_time.value = fields["edge_time"]
         d.pin_edge_polarity.value = fields["polarity"]
+        d.crc_grant.value = self._cur_grant
         d.slot_free.value = fields["free"]
         d.tx_level.value = self.dqueues.tx_level
         d.tx_data.value = _peek_tx(self.dqueues)
@@ -373,17 +379,21 @@ class EngineHarness:
         )
 
     # -- main loop -------------------------------------------------------
-    async def run(self, cycles, stimulus=None, host=None):
+    async def run(self, cycles, stimulus=None, host=None, crc_grant=None):
         """Run ``cycles`` clocks, comparing after every one.
 
         ``stimulus(cycle, now) -> int`` returns the 8-bit external pin level for
         the cycle; ``host(cycle) -> list[(kind, payload)]`` returns host queue
-        operations (``("tx", bytes)`` or ``("rx_pop", None)``).
+        operations (``("tx", bytes)`` or ``("rx_pop", None)``);
+        ``crc_grant(cycle) -> int`` returns the CRC grant (default granted), so
+        a test can withhold the shared CRC and confirm the engine stalls.
         """
         d = self.dut
+        self._grant_fn = crc_grant
         for cycle in range(cycles):
             ext = stimulus(cycle, self.now) & 0xFF if stimulus else 0
             ops = host(cycle) if host else None
+            self._cur_grant = (self._grant_fn(cycle) & 1) if self._grant_fn else 1
 
             await FallingEdge(d.clk)
             self._apply_host(ops)
@@ -393,7 +403,7 @@ class EngineHarness:
             actions = self._read_actions()
 
             await RisingEdge(d.clk)
-            self.model.step(self.now)
+            self.model.step(self.now, crc_grant=bool(self._cur_grant))
             self._apply_actions(actions)
             self._tick_both()
 

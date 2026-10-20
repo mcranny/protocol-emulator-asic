@@ -69,6 +69,7 @@ module v3_engine (
     output wire [7:0]  rx_meta,
 
     // Shared CRC unit (same-cycle operations).
+    input  wire        crc_grant,       // high when this engine may use the CRC
     output wire        crc_cfg,
     output wire [15:0] crc_poly,
     output wire        crc_msb_first,
@@ -311,6 +312,11 @@ module v3_engine (
             `OP_PULL: do_stall = (tx_level == 5'd0);
             `OP_RX: if (rx_level == 5'd16) begin do_fault = 1'b1; fbits = E_QUEUE; end
             `OP_WAITEVENT: do_stall = !(wev_match || wev_timeout);
+            // A CRC-modifying op stalls until this engine is granted the shared
+            // unit, so a collision with the other engine retries rather than
+            // silently dropping the operation. CRCGET only reads, so it needs
+            // no grant.
+            `OP_CRCCFG, `OP_CRCLOAD, `OP_CRCBIT: do_stall = !crc_grant;
             default: ; // single-cycle register/time/input/crc ops
         endcase
     end
@@ -554,6 +560,13 @@ module v3_engine (
             if (bubble_r)
                 assert (commit == 8'b0 && !tx_pull && !rx_push &&
                         !crc_cfg && !crc_load && !crc_bit && clear_missed == 8'b0);
+            // A CRC-modifying op with the grant withheld stalls and drives no
+            // CRC strobe, so a collision retries instead of being dropped.
+            if (exec_valid && !crc_grant &&
+                (op == `OP_CRCCFG || op == `OP_CRCLOAD || op == `OP_CRCBIT)) begin
+                assert (do_stall);
+                assert (!crc_cfg && !crc_load && !crc_bit);
+            end
         end
 
         if (f_past_valid && rst_n && f_rstn_prev) begin

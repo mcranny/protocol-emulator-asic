@@ -203,7 +203,7 @@ def test_crccfg_through_the_opcode_does_not_disturb_the_state() -> None:
 # -- shared CRC across two engines (G11) --------------------------------
 
 
-def test_two_engines_chain_the_shared_crc_in_a_fixed_order() -> None:
+def test_two_engines_serialize_the_shared_crc_engine_0_first() -> None:
     crc = model.Crc()
     pins = [model.PinCell() for _ in range(8)]
     e0 = model.Engine(pins=pins, owner=0x0F, crc=crc)
@@ -216,15 +216,32 @@ def test_two_engines_chain_the_shared_crc_in_a_fixed_order() -> None:
     e1.start(0)
     e0.regs[0] = 1  # engine 0 shifts a 1
     e1.regs[0] = 0  # engine 1 shifts a 0
-    e0.step(0)  # applied first
-    e1.step(0)  # chained on engine 0's result in the same cycle
 
-    reference = model.Crc()
-    reference.configure(0x1021, True)
-    reference.load(0x0000)
-    reference.shift(1)
-    reference.shift(0)
-    assert crc.value == reference.value
+    # Both request the CRC in the same cycle. Engine 0 has priority and shifts;
+    # engine 1 is not granted, so it stalls that cycle without touching the CRC.
+    e0.step(0)
+    e1.step(0, crc_grant=not e0.crc_used)
+    assert e0.crc_used, "engine 0 did not use the CRC first"
+    assert e1.stalled and e1.retired == 0, "engine 1 must stall on the collision"
+
+    partial = model.Crc()
+    partial.configure(0x1021, True)
+    partial.load(0x0000)
+    partial.shift(1)
+    assert crc.value == partial.value, "only engine 0's bit has landed so far"
+
+    # Next cycle engine 0 is done with the CRC, so engine 1 is granted and its
+    # bit lands too: no request was dropped.
+    e0.step(1)
+    e1.step(1, crc_grant=not e0.crc_used)
+    assert not e1.stalled and e1.retired == 1, "engine 1 must retire after the stall"
+
+    both = model.Crc()
+    both.configure(0x1021, True)
+    both.load(0x0000)
+    both.shift(1)
+    both.shift(0)
+    assert crc.value == both.value, "both bits land, engine 0's first"
 
 
 def test_two_engines_use_the_shared_crc_in_disjoint_bursts() -> None:

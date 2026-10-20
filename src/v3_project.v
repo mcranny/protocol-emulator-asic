@@ -430,9 +430,10 @@ module tt_um_mcranny_protocol_emulator_v3 (
 
     // ------------------------------------------------------------------
     // Shared CRC/LFSR, engine 0 has fixed priority. v3_crc performs at most
-    // one operation per clock, so it cannot chain two simultaneous requests
-    // within a cycle: engine 1's operation is dropped whenever engine 0
-    // issues one in the same cycle.
+    // one operation per clock. Engine 0 is always granted; engine 1 is granted
+    // only when engine 0 is not using the CRC this cycle. A CRC-modifying op
+    // stalls in the engine until it is granted, so engine 1's operation is
+    // retried on a collision rather than dropped.
     // ------------------------------------------------------------------
     wire        crc0_cfg,  crc1_cfg;
     wire [15:0] crc0_poly, crc1_poly;
@@ -444,6 +445,12 @@ module tt_um_mcranny_protocol_emulator_v3 (
     wire [15:0] crc_value;
 
     wire e0_crc_active = crc0_cfg || crc0_load || crc0_bit;
+
+    // Grants: engine 0 has fixed priority and is always granted; engine 1 is
+    // granted only when engine 0 is idle on the CRC this cycle. Engine 0's CRC
+    // use never depends on a grant, so there is no combinational loop.
+    wire crc0_grant = 1'b1;
+    wire crc1_grant = !e0_crc_active;
 
     wire        crc_cfg  = e0_crc_active ? crc0_cfg  : crc1_cfg;
     wire [15:0] crc_poly = e0_crc_active ? crc0_poly : crc1_poly;
@@ -588,6 +595,7 @@ module tt_um_mcranny_protocol_emulator_v3 (
         .rx_push       (e0_rx_push),
         .rx_value      (e0_rx_value),
         .rx_meta       (e0_rx_meta),
+        .crc_grant     (crc0_grant),
         .crc_cfg       (crc0_cfg),
         .crc_poly      (crc0_poly),
         .crc_msb_first (crc0_msb),
@@ -657,6 +665,7 @@ module tt_um_mcranny_protocol_emulator_v3 (
         .rx_push       (e1_rx_push),
         .rx_value      (e1_rx_value),
         .rx_meta       (e1_rx_meta),
+        .crc_grant     (crc1_grant),
         .crc_cfg       (crc1_cfg),
         .crc_poly      (crc1_poly),
         .crc_msb_first (crc1_msb),

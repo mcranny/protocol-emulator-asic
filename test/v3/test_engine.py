@@ -32,10 +32,11 @@ async def _clock(dut):
 async def _drive(dut, image, cycles, **kw):
     stimulus = kw.pop("stimulus", None)
     host = kw.pop("host", None)
+    crc_grant = kw.pop("crc_grant", None)
     harness = EngineHarness(dut, image, **kw)
     await harness.reset()
     await harness.start()
-    await harness.run(cycles, stimulus=stimulus, host=host)
+    await harness.run(cycles, stimulus=stimulus, host=host, crc_grant=crc_grant)
     return harness
 
 
@@ -294,6 +295,34 @@ async def test_v3_engine_crc(dut):
         "HALT\n"
     )
     await _drive(dut, _img(source), 40)
+
+
+@cocotb.test()
+async def test_v3_engine_crc_stalls_until_granted(dut):
+    """A CRC-modifying op stalls while the grant is withheld, then retires.
+
+    The grant is dropped on every third cycle. The differential harness feeds
+    the same grant to the model, which also stalls, so the engine must hold its
+    PC and drive no CRC strobe on an ungranted CRC op and still reach the right
+    CRC once granted. Without the stall the DUT would shift while the model did
+    not and the per-cycle comparison would diverge.
+    """
+    await _clock(dut)
+    source = (
+        "CRCCFG poly=0x1021 msb_first=1\n"
+        "LI reg=0 value=0xFFFF\n"
+        "CRCLOAD reg=0\n"
+        "LI reg=1 value=1\n"
+        "CRCBIT reg=1\n"
+        "CRCBIT reg=1\n"
+        "CRCBIT reg=1\n"
+        "CRCBIT reg=1\n"
+        "CRCGET reg=2\n"
+        "HALT\n"
+    )
+    h = await _drive(dut, _img(source), 60, crc_grant=lambda cycle: 0 if cycle % 3 == 0 else 1)
+    assert h.model.halted and h.model.errors == 0
+    assert h.model.cycles_to_halt > h.model.retired, "the withheld grant forced no stall"
 
 
 # -- Step 7: full random differential -----------------------------------

@@ -648,9 +648,11 @@ class Engine:
         :param owner: 8-bit mask of pins this engine may commit to.
         :param open_drain: 8-bit open-drain mask, recorded for completeness.
         :param crc: the shared :class:`Crc` unit. Both engines are given the
-            same instance so their CRC bursts chain; stepping engine 0 before
-            engine 1 each cycle makes the order deterministic. When ``None`` a
-            private unit is created, which suits a single-engine test.
+            same instance. Engine 0 has fixed priority; stepping engine 0 first
+            and passing ``crc_grant=not engine0.crc_used`` to engine 1 makes a
+            same-cycle collision serialize, engine 1 stalling one cycle rather
+            than its operation being dropped. When ``None`` a private unit is
+            created, which suits a single-engine test.
 
         The queues are owned per engine (:attr:`queues`). Edge watchers are held
         in :attr:`watches` as ``(mask, value, edges)`` tuples with
@@ -687,6 +689,11 @@ class Engine:
         self.running = False
         self.halted = False
         self.stalled = False
+        #: True on a cycle this engine drove a CRC-modifying op. The other
+        #: engine's grant is the negation of this (engine 0 has priority).
+        self.crc_used = False
+        #: Whether this engine may use the shared CRC this cycle; set by ``step``.
+        self._crc_grant = True
         self.errors = 0
         self.fault_code = 0
         self.retired = 0
@@ -791,7 +798,7 @@ class Engine:
         """Halt fetching without raising an error. Ownership may then change."""
         self.running = False
 
-    def step(self, now: int) -> None:
+    def step(self, now: int, crc_grant: bool = True) -> None:
         """Advance one clock cycle.
 
         Executes the word delivered by the previous cycle's fetch, resolves any
@@ -801,7 +808,14 @@ class Engine:
         The one-cycle MARK marker is cleared and the edge watchers are evaluated
         first, on every clock, so they track the pins independently of the fetch
         pipeline exactly as the hardware does.
+
+        :param crc_grant: whether this engine may use the shared CRC this cycle.
+            Engine 0 has fixed priority and is always granted; engine 1 is
+            granted only when engine 0 did not drive the CRC this cycle, so a
+            CRC-modifying op stalls and retries on a collision.
         """
+        self._crc_grant = crc_grant
+        self.crc_used = False
         self.marker = 0
         self._evaluate_watchers()
         if not self.running:
@@ -1285,17 +1299,26 @@ class Engine:
 
     def _op_crccfg(self, ops: dict[str, int], now: int) -> str:
         """Configure the shared CRC polynomial and direction; state untouched."""
+        if not self._crc_grant:
+            return _ACTION_STALL
         self.crc.configure(ops["poly"], bool(ops["msb_first"]))
+        self.crc_used = True
         return _ACTION_NEXT
 
     def _op_crcload(self, ops: dict[str, int], now: int) -> str:
         """Seed the shared CRC with the low 16 bits of ``regs[reg]``."""
+        if not self._crc_grant:
+            return _ACTION_STALL
         self.crc.load(self.regs[ops["reg"]] & 0xFFFF)
+        self.crc_used = True
         return _ACTION_NEXT
 
     def _op_crcbit(self, ops: dict[str, int], now: int) -> str:
         """Shift the low bit of ``regs[reg]`` through the shared CRC."""
+        if not self._crc_grant:
+            return _ACTION_STALL
         self.crc.shift(self.regs[ops["reg"]] & 1)
+        self.crc_used = True
         return _ACTION_NEXT
 
     def _op_crcget(self, ops: dict[str, int], now: int) -> str:
