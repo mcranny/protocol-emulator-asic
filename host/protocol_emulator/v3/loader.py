@@ -96,21 +96,28 @@ def connect(exchange: Exchange) -> None:
 
 
 def load(exchange: Exchange, engine: int, image: Image) -> None:
-    """Write all 256 words of ``image`` to an engine, then read them all back.
+    """Invalidate an engine's image, write all 256 words, then read them back.
+
+    The leading ``CLEAR`` drops the engine's validity bitmap so an interrupted
+    reload leaves the image incomplete rather than mixing new words with stale
+    valid ones, which would let a partial reload start.
 
     :param exchange: The SPI transfer function.
     :param engine: The engine to load, 0 or 1.
     :param image: The assembled program; unused words are already ``HALT``.
     :raises ValueError: If ``engine`` is not 0 or 1.
-    :raises ProtocolError: If a write is rejected, or a word read back differs
-        from the word written; the message names the first mismatching
-        address with the expected and read values.
+    :raises ProtocolError: If the clear or a write is rejected, or a word read
+        back differs from the word written; the message names the first
+        mismatching address with the expected and read values.
     """
     _check_engine(engine)
+    clear = _command("CLEAR", engine)
     write = _command("WRITE", engine)
     read = _command("READ", engine)
     transact(
-        exchange, [Frame(write, address, word) for address, word in enumerate(image.words)]
+        exchange,
+        [Frame(clear, 0, 0)]
+        + [Frame(write, address, word) for address, word in enumerate(image.words)],
     )
     replies = transact(exchange, [Frame(read, address, 0) for address in range(PROGRAM_WORDS)])
     for address, (word, reply) in enumerate(zip(image.words, replies, strict=True)):

@@ -72,7 +72,11 @@ The command code is the low four bits of the command byte. `TXPUSH` (0x08) carri
 the count is out of range or the bytes do not fit. `RXPOP` (0x09) returns the oldest receive
 record as `{value, meta}` in the low 16 payload bits, and rejects with a zero payload when the
 queue is empty, popping nothing. Both are accepted while the engines run, which is their purpose.
-Unused codes echo like `NOP`.
+`CLEAR` (0x0A) invalidates the addressed engine's program image by clearing its validity bitmap,
+so every word must be rewritten before the image is complete again; it is rejected while that
+engine runs. The loader issues it before each reload so an interrupted reload leaves the image
+incomplete rather than letting stale valid words make a partial reload startable. Codes 0x0B-0x0F
+echo like `NOP`.
 
 | `ui_in` | Function | `uo_out` | Function |
 |---|---|---|---|

@@ -36,6 +36,10 @@ class FakeDevice:
             if self.running[engine]:
                 return host.Frame(request.cmd | host.REJECT_BIT, request.addr, 0)
             self.memory[engine][request.addr] = request.payload
+        elif code == CMD["CLEAR"]:
+            if self.running[engine]:
+                return host.Frame(request.cmd | host.REJECT_BIT, request.addr, 0)
+            self.memory[engine] = [0] * PROGRAM_WORDS
         elif code == CMD["READ"]:
             payload = self.corrupt_read.get(request.addr, self.memory[engine][request.addr])
         elif code == CMD["CONFIG"]:
@@ -128,8 +132,32 @@ def test_load_to_engine_0_never_sets_the_engine_bit(device: FakeDevice) -> None:
 
 def test_a_rejected_reply_raises_protocol_error(device: FakeDevice) -> None:
     device.running[0] = True
-    with pytest.raises(loader.ProtocolError, match="WRITE"):
+    with pytest.raises(loader.ProtocolError, match="CLEAR"):
         loader.load(device.exchange, 0, assemble("HALT"))
+
+
+def test_load_clears_the_image_before_writing_it(device: FakeDevice) -> None:
+    loader.load(device.exchange, 0, assemble("HALT"))
+    commands = [f.cmd for f in device.sent if f.cmd != CMD["NOP"]]
+    assert commands[0] == CMD["CLEAR"], "load must clear before writing"
+    assert commands.index(CMD["CLEAR"]) < commands.index(CMD["WRITE"])
+
+
+def test_clear_invalidates_the_stored_image(device: FakeDevice) -> None:
+    image = assemble("LI reg=0 value=5\nHALT")
+    loader.load(device.exchange, 0, image)
+    assert device.memory[0] == list(image.words)
+    loader.transact(device.exchange, [host.Frame(CMD["CLEAR"], 0, 0)])
+    assert device.memory[0] == [0] * PROGRAM_WORDS
+
+
+def test_load_to_engine_1_clears_engine_1_only(device: FakeDevice) -> None:
+    image = assemble("LI reg=0 value=5\nHALT")
+    loader.load(device.exchange, 0, image)
+    loader.load(device.exchange, 1, assemble("HALT"))
+    clears = [f for f in device.sent if f.cmd & ~host.ENGINE_BIT == CMD["CLEAR"]]
+    assert [bool(f.cmd & host.ENGINE_BIT) for f in clears] == [False, True]
+    assert device.memory[0] == list(image.words), "engine 0 image disturbed by an engine 1 load"
 
 
 def test_start_sends_one_frame_with_the_engine_mask(device: FakeDevice) -> None:

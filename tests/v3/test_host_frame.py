@@ -52,6 +52,7 @@ def test_the_command_map_is_exact() -> None:
         "VERSION": 0x07,
         "TXPUSH": 0x08,
         "RXPOP": 0x09,
+        "CLEAR": 0x0A,
     }
 
 

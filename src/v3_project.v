@@ -35,7 +35,7 @@ module tt_um_mcranny_protocol_emulator_v3 (
 
     // ------------------------------------------------------------------
     // Host command codes (low four bits; bit 6 selects the engine, bits 5:4
-    // are ignored). Codes 0x0A-0x0F echo with no effect, like NOP.
+    // are ignored). Codes 0x0B-0x0F echo with no effect, like NOP.
     // ------------------------------------------------------------------
     localparam [3:0] CMD_WRITE   = 4'h1;
     localparam [3:0] CMD_READ    = 4'h2;
@@ -46,6 +46,7 @@ module tt_um_mcranny_protocol_emulator_v3 (
     localparam [3:0] CMD_VERSION = 4'h7;
     localparam [3:0] CMD_TXPUSH  = 4'h8;
     localparam [3:0] CMD_RXPOP   = 4'h9;
+    localparam [3:0] CMD_CLEAR   = 4'hA;
 
     localparam [31:0] VERSION_WORD = 32'h0300_0000;
 
@@ -237,6 +238,13 @@ module tt_um_mcranny_protocol_emulator_v3 (
     wire write0_en = host_cmd_valid && (code == CMD_WRITE) && (engine_sel == 1'b0) && !eng0_running;
     wire write1_en = host_cmd_valid && (code == CMD_WRITE) && (engine_sel == 1'b1) && !eng1_running;
 
+    // CLEAR invalidates an engine's program image so a partial reload cannot
+    // start: the validity bitmap drops to zero and every word must be rewritten
+    // before the image is complete again. Like a write, it is refused while the
+    // target engine is running.
+    wire clear0_en = host_cmd_valid && (code == CMD_CLEAR) && (engine_sel == 1'b0) && !eng0_running;
+    wire clear1_en = host_cmd_valid && (code == CMD_CLEAR) && (engine_sel == 1'b1) && !eng1_running;
+
     wire read0 = host_cmd_valid && (code == CMD_READ) && (engine_sel == 1'b0);
     wire read1 = host_cmd_valid && (code == CMD_READ) && (engine_sel == 1'b1);
 
@@ -280,7 +288,7 @@ module tt_um_mcranny_protocol_emulator_v3 (
         .write_en       (write0_en),
         .write_addr     (host_addr),
         .write_data     (host_payload),
-        .invalidate     (1'b0),
+        .invalidate     (clear0_en),
         .image_complete (pm0_complete)
     );
 
@@ -294,7 +302,7 @@ module tt_um_mcranny_protocol_emulator_v3 (
         .write_en       (write1_en),
         .write_addr     (host_addr),
         .write_data     (host_payload),
-        .invalidate     (1'b0),
+        .invalidate     (clear1_en),
         .image_complete (pm1_complete)
     );
 
@@ -302,6 +310,7 @@ module tt_um_mcranny_protocol_emulator_v3 (
     // Host reply (shifted out on the next frame). Rejections set REJECT_BIT.
     // ------------------------------------------------------------------
     wire write_reject  = (code == CMD_WRITE)  && (engine_sel ? eng1_running : eng0_running);
+    wire clear_reject  = (code == CMD_CLEAR)  && (engine_sel ? eng1_running : eng0_running);
     wire config_reject = (code == CMD_CONFIG) && !both_stopped;
     wire watch_reject  = (code == CMD_WATCH)  && !both_stopped;
     wire start_reject  = (code == CMD_START)  &&
@@ -314,8 +323,8 @@ module tt_um_mcranny_protocol_emulator_v3 (
     wire [15:0] rx_head_sel   = engine_sel ? rx1_head    : rx0_head;
     wire txpush_reject = (code == CMD_TXPUSH) && !tx_push_ok_sel;
     wire rxpop_reject  = (code == CMD_RXPOP)  && (rx_level_sel == 5'd0);
-    wire reject = write_reject || config_reject || watch_reject || start_reject ||
-                  txpush_reject || rxpop_reject;
+    wire reject = write_reject || clear_reject || config_reject || watch_reject ||
+                  start_reject || txpush_reject || rxpop_reject;
 
     wire [31:0] read_data = engine_sel ? pm1_fetch_data : pm0_fetch_data;
     wire [7:0]  reply_cmd = reject ? (host_cmd | 8'h80) : host_cmd;

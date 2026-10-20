@@ -669,3 +669,73 @@ async def test_v3_open_drain_preserves_latched_state_across_set_and_oe(dut):
                         f"dut (out={dv}, oe={do}) model (out={mv}, oe={mo})"
                     )
         model_now = (model_now + 1) & TIMEBASE_MASK
+
+
+async def _running(dut) -> bool:
+    """True once engine 0 reports running within 64 clocks, else False."""
+    for _ in range(64):
+        await RisingEdge(dut.clk)
+        await ReadOnly()
+        if (int(dut.uo_out.value) >> 1) & 1:
+            return True
+    return False
+
+
+@cocotb.test()
+async def test_v3_clear_invalidates_so_a_partial_reload_cannot_start(dut):
+    """CLEAR drops the validity bitmap, so a partial reload cannot start.
+
+    A full image is written, then CLEAR invalidates it and only one word is
+    rewritten. START must be refused and start nothing. Rewriting the whole
+    image makes START succeed again, so CLEAR is recoverable.
+    """
+    image0 = assemble("loop:\n    JMP target=loop\n")
+    chip = Chip(dut)
+    await chip.reset()
+
+    writes = [Frame(COMMANDS["WRITE"], addr, word) for addr, word in enumerate(image0.words)]
+    write_replies = await _transact(chip, writes)
+    for index, request in enumerate(writes):
+        assert not write_replies[index].cmd & REJECT_BIT, f"write {index} {request} rejected"
+
+    # CLEAR while stopped is accepted; a single rewrite leaves the image short.
+    clear_reply = (await _transact(chip, [Frame(COMMANDS["CLEAR"], 0, 0)]))[0]
+    assert not clear_reply.cmd & REJECT_BIT, "CLEAR was rejected while stopped"
+    await _transact(chip, [Frame(COMMANDS["WRITE"], 0, image0.words[0])])
+
+    # START must be refused because the image is incomplete after the CLEAR.
+    reply = (await _transact(chip, [Frame(COMMANDS["START"], 0, 0b01)]))[0]
+    assert reply.cmd & REJECT_BIT, "START ran a partial reload after CLEAR"
+    for _ in range(64):
+        await RisingEdge(dut.clk)
+        await ReadOnly()
+        assert not (int(dut.uo_out.value) >> 1) & 1, "engine 0 started from an incomplete image"
+
+    # Rewrite the whole image: START is accepted again.
+    await RisingEdge(dut.clk)
+    await _transact(chip, writes)
+    await RisingEdge(dut.clk)
+    await chip.frame(pack(COMMANDS["START"], 0, 0b01), finish=False)
+    assert await _running(dut), "engine 0 did not start after a full reload"
+
+
+@cocotb.test()
+async def test_v3_clear_is_rejected_while_the_engine_runs(dut):
+    """CLEAR is refused while the target engine runs and does not invalidate."""
+    image0 = assemble("loop:\n    JMP target=loop\n")
+    chip = Chip(dut)
+    await chip.reset()
+
+    writes = [Frame(COMMANDS["WRITE"], addr, word) for addr, word in enumerate(image0.words)]
+    await _transact(chip, writes)
+
+    await chip.frame(pack(COMMANDS["START"], 0, 0b01), finish=False)
+    assert await _running(dut), "engine 0 never started"
+
+    # CLEAR while running must be rejected and leave the engine running.
+    await RisingEdge(dut.clk)
+    reply = (await _transact(chip, [Frame(COMMANDS["CLEAR"], 0, 0)]))[0]
+    assert reply.cmd & REJECT_BIT, "CLEAR was accepted while the engine ran"
+    await RisingEdge(dut.clk)
+    await ReadOnly()
+    assert (int(dut.uo_out.value) >> 1) & 1, "engine 0 stopped after a rejected CLEAR"

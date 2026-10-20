@@ -41,6 +41,7 @@ COMMANDS: dict[str, int] = {
     "VERSION": 0x07,
     "TXPUSH": 0x08,
     "RXPOP": 0x09,
+    "CLEAR": 0x0A,
 }
 
 #: Payload carried by the reply to the ``VERSION`` command (major version 3).
