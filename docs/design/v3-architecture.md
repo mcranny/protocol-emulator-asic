@@ -147,11 +147,18 @@ global-route hold margin is 0.10 ns. Signoff, once the flow is run, is zero setu
 capacitance and fanout violations at all three corners, with at least +0.10 ns worst fast-corner
 hold slack and at least +2 ns worst slow-corner register-to-register setup slack.
 
-The die target is 8x4 tiles (1724.16 x 710.64 µm). 6x4 (1289.28 x 710.64 µm) stays buildable
-from the same RTL until the 8x4 template is confirmed. The two SRAM macros sit on the left edge,
-about 98,977 µm² together. The CMOS5L tile has vertical Metal4 supply stripes only, and a stripe
-feeds a macro only where it lands on that macro's supply column, so the power grid has to be
-derived from this macro's LEF rather than from the published 512x32 walkthrough.
+The die is 8x4 tiles (1724.16 x 710.64 µm), using the CMOS5L 8x4 template from Tiny Tapeout
+support tools `d66cf17`. The two SRAM macros sit on the left edge, about 98,977 µm² together,
+stacked with their signal pins facing a shared channel: the lower macro is mirrored (`FS`) at
+y = 215.46 µm and the upper one is upright at y = 374.22 µm. The CMOS5L tile has vertical Metal4
+supply stripes only, and a stripe feeds a macro only where it lands on that macro's supply column,
+so the power grid is derived from this macro's LEF rather than from the published 512x32
+walkthrough. The columns are 2.81 µm wide on an 11.24 µm pitch, but the right half of the macro is
+0.67 µm off the left half's phase. The stripes are therefore 2.81 µm wide at a 44.96 µm pitch,
+aligned to the left-half columns. They stop at the macro edges and abut the column ends.
+A Metal4 power-grid obstruction keeps the off-phase stripes clear of both macros. The physical
+configuration is `physical/v3/config.json`. It also sets a 2 µm placement halo, Metal2 to Metal4
+routing obstructions over each macro body, and one antenna diode on every SRAM input.
 
 The flow is the stock Tiny Tapeout flow, run locally from RTL. Release evidence is a fresh run:
 precheck, KLayout DRC, LVS, extracted timing and gate-level tests with the SRAM model. That run
@@ -228,7 +235,8 @@ rejection.
 1. Whether the Tiny Tapeout timing constraints set I/O delay as a fraction of the clock or as a
    fixed value. That decides whether external paths close at 48 MHz, and the first timing run
    answers it.
-2. Confirmation of the 8x4 template. Until then the project metadata keeps 6x4 buildable.
-3. Power-stripe coordinates taken from this macro's LEF, not from the 512x32 walkthrough.
-4. The PDK commit the precheck pins at hardening time.
-5. CMOS5L pad characterization, which Tiny Tapeout has not published.
+2. Whether the power-grid step lands the stripes on the macro supply columns as configured. The
+   IR-drop report and a layout view of the first run settle it; an unpowered macro still passes
+   DRC and LVS.
+3. The PDK commit the precheck pins at hardening time.
+4. CMOS5L pad characterization, which Tiny Tapeout has not published.

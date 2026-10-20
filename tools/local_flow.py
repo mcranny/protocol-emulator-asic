@@ -13,7 +13,7 @@ import sys
 
 IMAGE = "ghcr.io/librelane/librelane@sha256:d109140b8f17fc54f4fca998beb8124f4949404ec52e339eebd2250854a18b5a"
 PDK_REV = "2bbec755dc67ca3db0261c3d6163e15735d66710"
-TT_REV = "f6bf5c587fba4a4a8abd4c0a03234fccfbf6e61e"
+TT_REV = "d66cf179e7bc4d296362ab7e2e3b344dc3c4f665"
 
 
 def evidence_key(relative: Path) -> str:

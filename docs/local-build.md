@@ -50,7 +50,7 @@ git clone --filter=blob:none --no-checkout https://github.com/IHP-GmbH/IHP-Open-
 git -C /tmp/protocol-pdk sparse-checkout set ihp-sg13cmos5l ihp-sg13g2
 git -C /tmp/protocol-pdk checkout 2bbec755dc67ca3db0261c3d6163e15735d66710
 git clone https://github.com/TinyTapeout/tt-support-tools.git /tmp/protocol-tt
-git -C /tmp/protocol-tt checkout f6bf5c587fba4a4a8abd4c0a03234fccfbf6e61e
+git -C /tmp/protocol-tt checkout d66cf179e7bc4d296362ab7e2e3b344dc3c4f665
 ```
 
 Keep **both PDK directories**: CMOS5L contains symlinks to shared SG13G2 files,

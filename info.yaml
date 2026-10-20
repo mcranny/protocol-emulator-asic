@@ -5,7 +5,7 @@ project:
   description: "Two programmable engines scheduling pin changes against a shared 48 MHz timebase, with SRAM program memory"
   language: "Verilog"
   clock_hz: 48000000
-  tiles: "6x4"
+  tiles: "8x4"
   top_module: "tt_um_mcranny_protocol_emulator_v3"
   source_files:
     - "v3_timebase.v"
