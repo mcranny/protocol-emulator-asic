@@ -4,9 +4,10 @@ This model is the reference the RTL is compared against on every clock edge.
 It is written to be read: where a choice exists between a fast implementation
 and one that mirrors the hardware structure, it mirrors the hardware.
 """
-from typing import NamedTuple
+from typing import Callable, NamedTuple
 
-from . import PIN_COUNT, PROGRAM_WORDS, TIMEBASE_BITS
+from . import PIN_COUNT, PROGRAM_WORDS, TIMEBASE_BITS, isa
+from .opcodes import CONDITIONS
 
 TIMEBASE_MASK = (1 << TIMEBASE_BITS) - 1
 TIMEBASE_HALF = 1 << (TIMEBASE_BITS - 1)
@@ -463,3 +464,517 @@ class Capture:
         if 0 <= index < self.count:
             return self._records[index]
         return 0
+
+
+#: Registers (R0-R3) and the cursor are 24 bits wide.
+REGISTER_BITS = 24
+REGISTER_MASK = (1 << REGISTER_BITS) - 1
+
+#: Depth of the per-engine return stack.
+RETURN_STACK_DEPTH = 2
+
+#: Error bits, mirrored by ``E_*`` localparams in ``src/v3_engine.v``.
+E_ILLEGAL = 0x0001
+E_INVALID_WORD = 0x0002
+E_STACK = 0x0004
+E_OWNERSHIP = 0x0008
+E_FIRMWARE = 0x0010
+E_QUEUE = 0x0020
+E_TIMEOUT = 0x0040
+
+
+class NotLoaded(RuntimeError):
+    """START was attempted before every program word was written."""
+
+
+class ProgramMemory:
+    """256x32 program store with a registered read and a validity bitmap.
+
+    SRAM contents are undefined at power-up, so a word that has never been
+    written must not be executed. The bitmap makes that a detectable fault
+    rather than undefined behaviour, and START is refused until it is full.
+    """
+
+    def __init__(self) -> None:
+        self._words = [0] * PROGRAM_WORDS
+        self._written = [False] * PROGRAM_WORDS
+
+    def write(self, addr: int, word: int) -> None:
+        """Write ``word`` at ``addr`` and mark the address as valid.
+
+        :raises ValueError: if ``addr`` is outside ``0..PROGRAM_WORDS - 1``.
+        """
+        if not 0 <= addr < PROGRAM_WORDS:
+            raise ValueError(f"address {addr} is outside 0..{PROGRAM_WORDS - 1}")
+        self._words[addr] = word & 0xFFFFFFFF
+        self._written[addr] = True
+
+    def read(self, addr: int) -> int:
+        """Return the word at ``addr`` (wrapped into range)."""
+        return self._words[addr & (PROGRAM_WORDS - 1)]
+
+    def is_written(self, addr: int) -> bool:
+        """Return whether ``addr`` has ever been written."""
+        return self._written[addr & (PROGRAM_WORDS - 1)]
+
+    @property
+    def valid(self) -> bool:
+        """Whether every word has been written. START requires this."""
+        return all(self._written)
+
+    def reset(self) -> None:
+        """Deselection clears the bitmap; the contents are no longer trusted."""
+        self._written = [False] * PROGRAM_WORDS
+
+
+#: One instruction handler: ``(operands, now) -> action``.
+Handler = Callable[[dict[str, int], int], str]
+
+#: Action returned by an instruction handler.
+#:
+#: ``"next"``
+#:     Retire and prefetch ``pc + 1``.
+#: ``"redirect"``
+#:     The handler set ``pc`` to a branch target; insert a bubble and fetch it.
+#: ``"stall"``
+#:     Hold the engine on this instruction and retry next cycle.
+#: ``"fault"``
+#:     The handler raised an engine fault and halted; the instruction does not
+#:     retire.
+_ACTION_NEXT = "next"
+_ACTION_REDIRECT = "redirect"
+_ACTION_STALL = "stall"
+_ACTION_FAULT = "fault"
+
+
+class Engine:
+    """One programmable engine: fetch pipeline, cursor, registers and commits.
+
+    The engine fetches from its own :class:`ProgramMemory`, executes one
+    instruction per cycle on straight-line code, and schedules pin changes on
+    the shared timebase. The fetch is registered: the address presented on one
+    cycle delivers its word on the next, so a taken branch always costs two
+    cycles. The engine owns only the pins named by ``owner`` and stalls rather
+    than overwriting an occupied pin slot.
+
+    :ivar retired: instructions retired since START. An instruction counts when
+        it runs to completion, including ``HALT`` and ``FAIL`` (both deliberate
+        terminators). An instruction that raises an engine fault does not count:
+        ``E_ILLEGAL`` and ``E_INVALID_WORD`` are caught before execution, and
+        ``E_STACK`` (``CALL``/``RET``) and ``E_OWNERSHIP`` (a commit) abandon
+        the instruction without retiring it.
+    """
+
+    def __init__(self, pins: list[PinCell], owner: int, open_drain: int = 0) -> None:
+        """Create an engine over the shared ``pins`` with the given masks.
+
+        :param pins: the eight shared pin cells; the engine writes only those
+            it owns.
+        :param owner: 8-bit mask of pins this engine may commit to.
+        :param open_drain: 8-bit open-drain mask, recorded for completeness.
+        """
+        self.pins = pins
+        self.owner = owner
+        self.open_drain = open_drain
+        self.memory = ProgramMemory()
+
+        self.pc = 0
+        self.cursor = 0
+        self.regs = [0, 0, 0, 0]
+        self.isr = 0
+
+        self.running = False
+        self.halted = False
+        self.stalled = False
+        self.errors = 0
+        self.fault_code = 0
+        self.retired = 0
+        self.cycles_to_halt = 0
+
+        self._fetched = 0
+        self._fetch_addr = 0
+        self._bubble = False
+        self._stack: list[int] = []
+
+        self._flag_timeout = False
+        self._flag_interrupted = False
+        self._flag_zero = False
+        self._flag_carry = False
+
+        self._handlers: dict[str, Handler] = {
+            "NOP": self._op_nop,
+            "HALT": self._op_halt,
+            "JMP": self._op_jmp,
+            "BRC": self._op_brc,
+            "DJNZ": self._op_djnz,
+            "CALL": self._op_call,
+            "RET": self._op_ret,
+            "FAIL": self._op_fail,
+            "LI": self._op_li,
+            "MOV": self._op_mov,
+            "ADD": self._op_add,
+            "SUB": self._op_sub,
+            "AND": self._op_and,
+            "OR": self._op_or,
+            "XOR": self._op_xor,
+            "SHL": self._op_shl,
+            "SHR": self._op_shr,
+            "BREQ": self._op_breq,
+            "ADVANCE": self._op_advance,
+            "ADVANCER": self._op_advancer,
+            "CURSORSET": self._op_cursorset,
+            "CURSORGET": self._op_cursorget,
+            "NOW": self._op_now,
+            "WAITTIME": self._op_waittime,
+            "SET": self._op_set,
+            "OE": self._op_oe,
+            "DRIVE": self._op_drive,
+            "OUT": self._op_out,
+        }
+
+    # -- lifecycle ------------------------------------------------------
+
+    def load(self, image: "isa.Image") -> None:
+        """Write every word of ``image`` into program memory.
+
+        The assembler fills unused addresses with ``HALT``, so all 256 words
+        are written and :attr:`ProgramMemory.valid` becomes true.
+        """
+        for addr, word in enumerate(image.words):
+            self.memory.write(addr, word)
+
+    def start(self, now: int) -> None:
+        """Begin execution with the cursor initialised to ``now``.
+
+        :raises NotLoaded: if any program word has not been written.
+        """
+        if not self.memory.valid:
+            raise NotLoaded("START requires every program word to be written")
+        self.cursor = now & TIMEBASE_MASK
+        self.pc = 0
+        self.running = True
+        self.halted = False
+        self.stalled = False
+        self.retired = 0
+        self.cycles_to_halt = 0
+        self._bubble = False
+        self._stack = []
+        self._fetch(0)
+
+    def stop(self) -> None:
+        """Halt fetching without raising an error. Ownership may then change."""
+        self.running = False
+
+    def step(self, now: int) -> None:
+        """Advance one clock cycle.
+
+        Executes the word delivered by the previous cycle's fetch, resolves any
+        stall, and prefetches the next word. A taken branch inserts a one-cycle
+        bubble so it costs exactly two cycles.
+        """
+        if not self.running:
+            return
+        self.cycles_to_halt += 1
+
+        if self._bubble:
+            self._bubble = False
+            self.stalled = False
+            return
+
+        try:
+            instr = isa.decode(self._fetched)
+        except isa.IllegalInstruction:
+            self._fault(E_ILLEGAL)
+            return
+        if not self.memory.is_written(self._fetch_addr):
+            self._fault(E_INVALID_WORD)
+            return
+
+        action = self._execute(instr, now)
+        if action == _ACTION_STALL:
+            self.stalled = True
+            return
+        self.stalled = False
+        if action == _ACTION_FAULT:
+            return
+        self.retired += 1
+        if self.halted:
+            return
+        if action == _ACTION_REDIRECT:
+            self._bubble = True
+            self._fetch(self.pc)
+        else:
+            self.pc = (self.pc + 1) & (PROGRAM_WORDS - 1)
+            self._fetch(self.pc)
+
+    # -- internals ------------------------------------------------------
+
+    def _fetch(self, addr: int) -> None:
+        self._fetch_addr = addr & (PROGRAM_WORDS - 1)
+        self._fetched = self.memory.read(self._fetch_addr)
+
+    def _fault(self, bit: int) -> None:
+        self.errors |= bit
+        self.running = False
+        self.halted = True
+        self.stalled = False
+
+    def _execute(self, instr: "isa.Instruction", now: int) -> str:
+        handler = self._handlers.get(instr.name)
+        if handler is None:
+            raise NotImplementedError(
+                f"{instr.name} is not modelled yet: it depends on queues, "
+                "capture, CRC, input sampling or events (a later task wires "
+                "those in)"
+            )
+        return handler(instr.operands, now)
+
+    def _condition(self, cond: int) -> bool:
+        if cond == CONDITIONS["timeout"]:
+            return self._flag_timeout
+        if cond == CONDITIONS["interrupted"]:
+            return self._flag_interrupted
+        if cond == CONDITIONS["missed"]:
+            return any(cell.missed for cell in self.pins)
+        if cond == CONDITIONS["zero"]:
+            return self._flag_zero
+        if cond == CONDITIONS["carry"]:
+            return self._flag_carry
+        name = next(key for key, value in CONDITIONS.items() if value == cond)
+        raise NotImplementedError(
+            f"BRC condition {name!r} depends on queues or events, which a "
+            "later task wires in"
+        )
+
+    # -- control --------------------------------------------------------
+
+    def _op_nop(self, ops: dict[str, int], now: int) -> str:
+        return _ACTION_NEXT
+
+    def _op_halt(self, ops: dict[str, int], now: int) -> str:
+        self.running = False
+        self.halted = True
+        return _ACTION_NEXT
+
+    def _op_jmp(self, ops: dict[str, int], now: int) -> str:
+        self.pc = ops["target"]
+        return _ACTION_REDIRECT
+
+    def _op_brc(self, ops: dict[str, int], now: int) -> str:
+        if self._condition(ops["condition"]):
+            self.pc = ops["target"]
+            return _ACTION_REDIRECT
+        return _ACTION_NEXT
+
+    def _op_breq(self, ops: dict[str, int], now: int) -> str:
+        if self.regs[ops["reg"]] == ops["value"]:
+            self.pc = ops["target"]
+            return _ACTION_REDIRECT
+        return _ACTION_NEXT
+
+    def _op_djnz(self, ops: dict[str, int], now: int) -> str:
+        reg = ops["reg"]
+        self.regs[reg] = (self.regs[reg] - 1) & REGISTER_MASK
+        if self.regs[reg] != 0:
+            self.pc = ops["target"]
+            return _ACTION_REDIRECT
+        return _ACTION_NEXT
+
+    def _op_call(self, ops: dict[str, int], now: int) -> str:
+        if len(self._stack) >= RETURN_STACK_DEPTH:
+            self._fault(E_STACK)
+            return _ACTION_FAULT
+        self._stack.append((self.pc + 1) & (PROGRAM_WORDS - 1))
+        self.pc = ops["target"]
+        return _ACTION_REDIRECT
+
+    def _op_ret(self, ops: dict[str, int], now: int) -> str:
+        if not self._stack:
+            self._fault(E_STACK)
+            return _ACTION_FAULT
+        self.pc = self._stack.pop()
+        return _ACTION_REDIRECT
+
+    def _op_fail(self, ops: dict[str, int], now: int) -> str:
+        self.errors |= E_FIRMWARE
+        self.fault_code = ops["code"]
+        self.running = False
+        self.halted = True
+        return _ACTION_NEXT
+
+    # -- registers and ALU ---------------------------------------------
+
+    def _op_li(self, ops: dict[str, int], now: int) -> str:
+        self.regs[ops["reg"]] = ops["value"] & REGISTER_MASK
+        return _ACTION_NEXT
+
+    def _op_mov(self, ops: dict[str, int], now: int) -> str:
+        self.regs[ops["dst"]] = self.regs[ops["src"]]
+        return _ACTION_NEXT
+
+    def _op_add(self, ops: dict[str, int], now: int) -> str:
+        """``dst += src``; carry is the carry-out of the 24-bit add, zero the
+        result."""
+        total = self.regs[ops["dst"]] + self.regs[ops["src"]]
+        self.regs[ops["dst"]] = total & REGISTER_MASK
+        self._flag_carry = total > REGISTER_MASK
+        self._flag_zero = self.regs[ops["dst"]] == 0
+        return _ACTION_NEXT
+
+    def _op_sub(self, ops: dict[str, int], now: int) -> str:
+        """``dst -= src``; carry is the borrow (set when ``dst < src``), zero
+        the result."""
+        diff = self.regs[ops["dst"]] - self.regs[ops["src"]]
+        self._flag_carry = diff < 0
+        self.regs[ops["dst"]] = diff & REGISTER_MASK
+        self._flag_zero = self.regs[ops["dst"]] == 0
+        return _ACTION_NEXT
+
+    def _op_and(self, ops: dict[str, int], now: int) -> str:
+        """``dst &= src``; logical ops set zero only and leave carry unchanged."""
+        self.regs[ops["dst"]] &= self.regs[ops["src"]]
+        self._flag_zero = self.regs[ops["dst"]] == 0
+        return _ACTION_NEXT
+
+    def _op_or(self, ops: dict[str, int], now: int) -> str:
+        """``dst |= src``; logical ops set zero only and leave carry unchanged."""
+        self.regs[ops["dst"]] |= self.regs[ops["src"]]
+        self._flag_zero = self.regs[ops["dst"]] == 0
+        return _ACTION_NEXT
+
+    def _op_xor(self, ops: dict[str, int], now: int) -> str:
+        """``dst ^= src``; logical ops set zero only and leave carry unchanged."""
+        self.regs[ops["dst"]] ^= self.regs[ops["src"]]
+        self._flag_zero = self.regs[ops["dst"]] == 0
+        return _ACTION_NEXT
+
+    def _op_shl(self, ops: dict[str, int], now: int) -> str:
+        """``dst <<= amount``; carry is the last bit shifted out past bit 23,
+        zero the masked result. A shift of 24 or more shifts every bit out, so
+        carry is the bit that lands on bit 24 (0 once the shift clears it) and
+        the result is zero."""
+        dst = ops["dst"]
+        amount = ops["amount"]
+        shifted = self.regs[dst] << amount
+        self.regs[dst] = shifted & REGISTER_MASK
+        self._flag_carry = bool((shifted >> REGISTER_BITS) & 1)
+        self._flag_zero = self.regs[dst] == 0
+        return _ACTION_NEXT
+
+    def _op_shr(self, ops: dict[str, int], now: int) -> str:
+        """``dst >>= amount``; carry is the last bit shifted out (bit
+        ``amount - 1`` of the original, 0 when ``amount`` is 0), zero the
+        result. A shift of 24 or more shifts every bit out, leaving zero and a
+        carry taken from an already-cleared register (0)."""
+        dst = ops["dst"]
+        amount = ops["amount"]
+        value = self.regs[dst]
+        self._flag_carry = bool((value >> (amount - 1)) & 1) if amount > 0 else False
+        self.regs[dst] = (value >> amount) & REGISTER_MASK
+        self._flag_zero = self.regs[dst] == 0
+        return _ACTION_NEXT
+
+    # -- time and cursor -----------------------------------------------
+
+    def _op_advance(self, ops: dict[str, int], now: int) -> str:
+        self.cursor = (self.cursor + ops["ticks"]) & TIMEBASE_MASK
+        return _ACTION_NEXT
+
+    def _op_advancer(self, ops: dict[str, int], now: int) -> str:
+        self.cursor = (self.cursor + self.regs[ops["reg"]]) & TIMEBASE_MASK
+        return _ACTION_NEXT
+
+    def _op_cursorset(self, ops: dict[str, int], now: int) -> str:
+        self.cursor = self.regs[ops["reg"]] & TIMEBASE_MASK
+        return _ACTION_NEXT
+
+    def _op_cursorget(self, ops: dict[str, int], now: int) -> str:
+        self.regs[ops["reg"]] = self.cursor & REGISTER_MASK
+        return _ACTION_NEXT
+
+    def _op_now(self, ops: dict[str, int], now: int) -> str:
+        self.regs[ops["reg"]] = now & TIMEBASE_MASK
+        return _ACTION_NEXT
+
+    def _op_waittime(self, ops: dict[str, int], now: int) -> str:
+        if signed_distance(self.cursor, now) > 0:
+            return _ACTION_STALL
+        return _ACTION_NEXT
+
+    # -- pin commits ----------------------------------------------------
+
+    def _op_out(self, ops: dict[str, int], now: int) -> str:
+        pin = ops["pin"]
+        return self._commit([(pin, ops["level"], 1)], [pin], ops["offset"], now)
+
+    def _op_set(self, ops: dict[str, int], now: int) -> str:
+        mask = ops["mask"]
+        value = ops["value"]
+        targets = [
+            (i, (value >> i) & 1, self.pins[i].oe)
+            for i in range(PIN_COUNT)
+            if (mask >> i) & 1
+        ]
+        require_own = [i for i in range(PIN_COUNT) if (mask >> i) & 1]
+        return self._commit(targets, require_own, ops["offset"], now)
+
+    def _op_oe(self, ops: dict[str, int], now: int) -> str:
+        mask = ops["mask"]
+        oe = ops["oe"]
+        targets = [
+            (i, self.pins[i].value, (oe >> i) & 1)
+            for i in range(PIN_COUNT)
+            if (mask >> i) & 1
+        ]
+        require_own = [i for i in range(PIN_COUNT) if (mask >> i) & 1]
+        return self._commit(targets, require_own, ops["offset"], now)
+
+    def _op_drive(self, ops: dict[str, int], now: int) -> str:
+        """Drive every owned pin to ``value[i]``/``oe[i]`` at ``cursor + offset``.
+
+        DRIVE has no mask. It writes only the pins this engine owns: an unowned
+        pin is never written and never stalled on, and its ``value`` bit is
+        ignored. Enabling an unowned pin is illegal, so if any ``oe`` bit names
+        an unowned pin the commit sets ``E_OWNERSHIP`` and schedules nothing on
+        any pin. With ``owner = 0xFF`` this drives all eight pins.
+        """
+        value = ops["value"]
+        oe = ops["oe"]
+        for i in range(PIN_COUNT):
+            if (oe >> i) & 1 and not (self.owner >> i) & 1:
+                self._fault(E_OWNERSHIP)
+                return _ACTION_FAULT
+        targets = [
+            (i, (value >> i) & 1, (oe >> i) & 1)
+            for i in range(PIN_COUNT)
+            if (self.owner >> i) & 1
+        ]
+        return self._commit(targets, [], ops["offset"], now)
+
+    def _commit(
+        self,
+        targets: list[tuple[int, int, int]],
+        require_own: list[int],
+        offset: int,
+        now: int,
+    ) -> str:
+        """Schedule a group of pin changes, faulting or stalling as required.
+
+        :param targets: ``(pin, value, oe)`` triples to schedule together.
+        :param require_own: pins that must be owned for the commit to be legal.
+        :param offset: ticks added to the cursor for the due time.
+        :returns: ``"next"`` when scheduled, ``"fault"`` when a required pin is
+            unowned (``E_OWNERSHIP``, nothing scheduled), ``"stall"`` when a
+            target pin's slot is still occupied.
+        """
+        for pin in require_own:
+            if not (self.owner >> pin) & 1:
+                self._fault(E_OWNERSHIP)
+                return _ACTION_FAULT
+        for pin, _value, _oe in targets:
+            if not self.pins[pin].free:
+                return _ACTION_STALL
+        due = (self.cursor + offset) & TIMEBASE_MASK
+        for pin, value, oe in targets:
+            self.pins[pin].schedule(due, value, oe, now)
+        return _ACTION_NEXT
