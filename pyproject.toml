@@ -12,6 +12,7 @@ dependencies = []
 
 [project.optional-dependencies]
 hardware = ["spidev==3.8"]
+dev = ["mypy==1.11.2", "pytest==8.3.3"]
 
 [project.scripts]
 protocol-emulator = "protocol_emulator.cli:main"
