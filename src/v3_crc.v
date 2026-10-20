@@ -50,7 +50,7 @@ module v3_crc (
 
     wire [15:0] shifted = msb_first_r ? {state[14:0], 1'b0} : {1'b0, state[15:1]};
 
-    always @(posedge clk) begin
+    always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             poly_r      <= 16'd0;
             msb_first_r <= 1'b1;

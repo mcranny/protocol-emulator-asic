@@ -14,7 +14,7 @@ module v3_timebase (
     output reg  [7:0]  epoch
 );
 
-    always @(posedge clk) begin
+    always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             now   <= 24'd0;
             epoch <= 8'd0;

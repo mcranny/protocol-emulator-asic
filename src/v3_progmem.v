@@ -50,6 +50,13 @@ module v3_progmem (
     wire [31:0] a_bist_bm   = 32'h00000000;
     wire [31:0] a_dout;
 
+    // a_dly and the A_BIST_* tie-offs only wire to the SRAM macro; the
+    // register-file model used by the default (macro-less) build ignores them.
+    // Sink them here so a plain -Wall build stays clean.
+    wire _unused_pm = &{1'b0, a_dly, a_bist_clk, a_bist_en, a_bist_men,
+                        a_bist_wen, a_bist_ren, a_bist_addr, a_bist_din,
+                        a_bist_bm};
+
 `ifdef V3_SRAM_BLACKBOX
 `define V3_PROGMEM_MACRO
 `endif

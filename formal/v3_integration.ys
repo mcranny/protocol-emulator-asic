@@ -1,0 +1,55 @@
+# Proof: F-V3-INTEGRATION
+# Top: tt_um_mcranny_protocol_emulator_v3
+#
+# Black boxes: v3_engine and v3_pin_cell. Their internal behaviour is proven
+# separately by formal/v3_engine.ys and formal/v3_pin_cell.ys, so here they
+# are abstracted to their interfaces and their outputs are free. The one
+# black-box fact the integration relies on is the pin cell's output-enable
+# release contract (pin_oe is low whenever the cell is disabled or in reset),
+# which v3_pin_cell.ys proves and which src/v3_project.v re-imposes here as an
+# assume on every pin cell's pin_oe inside its generate loop. No other
+# black-box assumption is added.
+#
+# Properties (all in the FORMAL blocks of src/v3_project.v):
+#   1. The two ownership masks are disjoint: (own0 & own1) == 0.
+#   2. A commit strobe only reaches a pin the strobing engine owns.
+#   3. !ena or !rst_n releases every uio_oe bit.
+#   4. One START frame addressing both engines strobes both starts the same
+#      cycle.
+#   5. A program write is refused while the target engine is running.
+#
+# Method: temporal induction over the integrated wiring with the black-box
+# outputs free and the pin-cell release contract assumed. The properties are
+# safety properties of the top-level routing and the assumed contract, not of
+# any black-boxed block's internal state.
+#
+# Scope and abstractions: formal/README.md.
+
+# Real sub-blocks (full RTL, no embedded FORMAL assertions).
+read_verilog -I src src/v3_timebase.v src/v3_input_filter.v src/v3_host_spi.v \
+                     src/v3_progmem.v src/v3_crc.v src/v3_capture.v
+
+# Blocks to abstract: read only their interfaces (bodies left as black boxes).
+read_verilog -lib -I src src/v3_engine.v src/v3_pin_cell.v
+
+# Top with its integration properties and the pin-cell release assume.
+read_verilog -formal -DFORMAL -I src src/v3_project.v
+
+hierarchy -top tt_um_mcranny_protocol_emulator_v3
+proc
+
+# Abstract the engines and pin cells: deleting their instances leaves their
+# output nets undriven, and setundef then drives those nets with fresh free
+# ($anyseq) values every cycle. The result is an engine/pin-cell output that
+# can take any value, constrained only by the pin-cell release contract that
+# src/v3_project.v assumes on each pin_oe.
+delete t:v3_engine t:v3_pin_cell
+hierarchy -top tt_um_mcranny_protocol_emulator_v3
+setundef -undriven -anyseq
+
+flatten
+memory_map
+opt
+async2sync
+dffunmap
+sat -seq 4 -tempinduct -maxsteps 16 -set-assumes -prove-asserts -verify

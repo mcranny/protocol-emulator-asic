@@ -66,8 +66,12 @@ module v3_capture #(
     end
     assign read_data = selected_record;
 
+    // The record memory needs no reset: count/armed are reset asynchronously
+    // below, so no record is ever read back until a fresh arm overwrites it.
+    // Gating only on sampling (not rst_n) keeps rst_n a purely asynchronous
+    // reset across the design, avoiding a mixed sync/async-reset net.
     always @(posedge clk) begin
-        if (rst_n && sampling && take)
+        if (sampling && take)
             records[arm ? 5'b0 : count[4:0]] <= {stamp, sample[31:8],sampled_flags | {4'b0,fire,3'b0}};
     end
     always @(posedge clk or negedge rst_n) begin

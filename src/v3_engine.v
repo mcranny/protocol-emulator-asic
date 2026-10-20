@@ -107,7 +107,6 @@ module v3_engine (
     localparam [15:0] E_OWNERSHIP   = 16'h0008;
     localparam [15:0] E_FIRMWARE    = 16'h0010;
     localparam [15:0] E_QUEUE       = 16'h0020;
-    localparam [15:0] E_TIMEOUT     = 16'h0040;
 
     localparam [23:0] MASK = 24'hFFFFFF;
 
@@ -129,8 +128,6 @@ module v3_engine (
     reg        pull_empty_r;
     reg        waitedge_active_r;
     reg [23:0] waitedge_baseline_r;
-
-    integer i;
 
     // -- current instruction --------------------------------------------
     wire [31:0] word = fetch_data;
@@ -190,7 +187,7 @@ module v3_engine (
     endfunction
     function fresh;             // signed_distance(a, b) >= 0
         input [23:0] a; input [23:0] b; reg [23:0] d;
-        begin d = (a - b) & MASK; fresh = (d[23] == 1'b0); end
+        begin d = (a - b) & MASK; fresh = (d < 24'h800000); end
     endfunction
 
     // -- edge watchers and events ---------------------------------------
@@ -207,7 +204,7 @@ module v3_engine (
     wire [23:0] rd_src = regfile[f_src];
     wire [24:0] add_res = {1'b0, rd_dst} + {1'b0, rd_src};
     wire [24:0] sub_res = {1'b0, rd_dst} - {1'b0, rd_src};
-    wire [55:0] shl_res = {32'b0, rd_dst} << f_amount;
+    wire [24:0] shl_res = {1'b0, rd_dst} << f_amount;
     wire [23:0] shr_res = (f_amount >= 5'd24) ? 24'd0 : (rd_dst >> f_amount);
     wire        shr_carry = (f_amount == 5'd0) ? 1'b0
                             : (((rd_dst >> (f_amount - 5'd1)) & 24'd1) != 24'd0);
@@ -327,6 +324,11 @@ module v3_engine (
     wire taken_branch = retire && do_redirect;
     wire ret_empty    = exec_valid && (op == `OP_RET) && (link_depth_r == 2'd0);
     wire f_active     = rst_n && ena && running_r && !stop;
+
+    // open_drain is reserved for a future open-drain commit path and is not yet
+    // consumed by the datapath; taken_branch/ret_empty/f_active drive the
+    // FORMAL assertions only. Sink them so a plain -Wall build stays clean.
+    wire _unused_eng = &{1'b0, open_drain, taken_branch, ret_empty, f_active};
 
     // -- external output strobes ----------------------------------------
     assign commit        = (retire && is_commit) ? ctarget : 8'b0;
