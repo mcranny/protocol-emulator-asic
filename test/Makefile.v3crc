@@ -1,0 +1,12 @@
+SIM ?= icarus
+TOPLEVEL_LANG = verilog
+VERILOG_SOURCES = $(CURDIR)/../src/v3_crc.v
+TOPLEVEL = v3_crc
+# MODULE is the cocotb 1.x name (the WSL toolchain); COCOTB_TEST_MODULES is the
+# cocotb 2.x name that test/requirements.txt pins.
+MODULE = v3.test_crc
+COCOTB_TEST_MODULES = v3.test_crc
+SIM_BUILD = sim_build/v3crc
+COCOTB_RESULTS_FILE = results_v3crc.xml
+export PYTHONPATH := $(CURDIR):$(CURDIR)/../host:$(PYTHONPATH)
+include $(shell cocotb-config --makefiles)/Makefile.sim
