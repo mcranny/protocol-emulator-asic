@@ -1,0 +1,14 @@
+# Proof: F-V3-TIMEBASE
+# Top: v3_timebase
+# Assumptions: initial sampled reset.
+# Properties: monotonic single-step advance; epoch carries exactly on wrap.
+# Method: temporal induction.
+# Scope and abstractions: formal/README.md.
+
+read_verilog -formal src/v3_timebase.v
+prep -top v3_timebase
+flatten
+opt
+async2sync
+dffunmap
+sat -seq 4 -tempinduct -maxsteps 16 -set-assumes -prove-asserts -verify
