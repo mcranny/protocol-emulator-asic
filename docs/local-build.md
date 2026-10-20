@@ -5,6 +5,34 @@ AMD64 is also available. Docker must be running. Local optimization does not
 need GitHub Actions, and builds run with container networking disabled after
 dependencies have been fetched.
 
+## This machine
+
+Recorded 19 October 2026. The Python unit tests run in the Windows virtual
+environment at `.venv`. Simulation, formal checks, and the PDK run in WSL,
+because the SRAM library is a symlink and does not survive an NTFS checkout.
+
+- WSL 3.0.3.0, kernel 6.18.54.1-1, WSLg 1.0.79. Distro Ubuntu-24.04, WSL version 2.
+- Ubuntu Python 3.12.3 and GNU make 4.3. Ubuntu was installed as root, so the
+  Linux home directory is `/root`.
+- Icarus Verilog 12.0 (stable), Verilator 5.020 (Debian 5.020-1), Yosys 0.33
+  (git sha1 2584903a060).
+- cocotb 1.9.2 and pytest 8.3.3 live in `/opt/eda`. Ubuntu 24.04 blocks
+  `pip install --user`.
+- Docker Desktop 4.96.0, engine 29.9.1, WSL2 backend. `docker run` from Ubuntu
+  uses Docker Desktop's WSL integration.
+
+The PDK checkout is `/root/pdk/ihp-open-pdk` at
+`2bbec755dc67ca3db0261c3d6163e15735d66710`, the same commit as the recipe
+below. `ihp-sg13cmos5l/libs.ref/sg13cmos5l_sram` is a symlink to
+`../../ihp-sg13g2/libs.ref/sg13g2_sram`. The 256x32 LEF `SIZE` is
+`416.64 BY 118.78`. Supply-column positions read from that LEF are in
+`physical/v3/pdn-columns.txt`. The column spacing is not one constant pitch.
+
+Windows has no GNU make. `python tools/make_entry.py` runs the same pytest
+command as `make test`. There are no `test/Makefile.v3*` or `formal/v3_*.ys`
+files yet. LibreLane is the pinned container in the recipe below, not a
+package installed on the host.
+
 ## One-time setup
 
 Use new, dedicated dependency directories. Preserve these exact revisions:

@@ -185,3 +185,9 @@ def test_inside_sets_tool_threads_and_stops_route_before_layout_checks(
     assert config["OPENROAD_THREADS"] == config["STA_THREADS"] == 4
     assert config["CLOCK_PERIOD"] == 40
     assert calls[0][calls[0].index("--to") + 1] == "OpenROAD.STAPostPNR"
+
+
+def test_evidence_keys_use_posix_separators():
+    relative = Path("src") / "config.json"
+    assert flow.evidence_key(relative) == "src/config.json"
+    assert "\\" not in flow.evidence_key(relative)
