@@ -42,8 +42,10 @@ cursor changes only when the program changes it.
 the address in one cycle, the word in the next. `A_MEN` is high only for a fetch or a write.
 `A_DLY` is tied high and the `A_BIST_*` inputs are tied low. SRAM contents are undefined at
 power-up, so each engine keeps a 256-bit validity bitmap. Fetching an unwritten word is fatal.
-Start is rejected unless every bit is set. The loader writes all 256 words, fills unused words
-with HALT and reads the image back before start.
+Start is rejected unless every bit is set. A START frame is all-or-nothing: if any commanded
+engine's image is incomplete the whole frame is rejected and neither engine starts, so a pair can
+never be half-started. The loader writes all 256 words, fills unused words with HALT and reads the
+image back before start.
 
 **CRC.** One shared 16-bit CRC/LFSR. `msb_first` selects the shift direction and therefore which
 end of the register is the polynomial tap: MSB first shifts left and uses the normal-form
@@ -106,7 +108,7 @@ flags.
 |---|---|
 | Control | NOP, HALT, JMP, BRC, DJNZ, CALL, RET, FAIL |
 | Registers | LI, MOV, ADD, SUB, AND, OR, XOR, SHL, SHR, BREQ |
-| Time | ADVANCE, ADVANCER, CURSORSET, CURSORGET, NOW |
+| Time | ADVANCE, ADVANCER, CURSORSET, CURSORGET, NOW, WAITTIME |
 | Pin commit | SET, OE, DRIVE, OUT, each with a 10-bit cursor offset |
 | Input | SAMPLE, IN, EDGETIME, WAITEDGE, WAITFOR |
 | Queues | PULL, PULLNB, RX |
@@ -194,7 +196,7 @@ The property under test is when a pin changed, not only which instruction retire
 | Engine | Return stack stays within two, commits strobe only owned pins, the engine never pushes a full receive queue or pulls an empty transmit queue, a bubble has no side effects, errors are sticky, a taken branch costs two cycles, and an empty-stack return faults and halts |
 | Host SPI | Two-flop synchronization, acceptance only at exactly 48 edges, rejection otherwise, MISO low while CS_n is high, response shifted on the following frame |
 | Capture | Count bound, truncation, reason 6 never reported, invalid reads masked, stopped state stable |
-| Integration | The two ownership masks are disjoint, a commit reaches only an owned pin, reset or disable releases every output enable, one start frame can strobe both engines, and a program write is refused while that engine runs |
+| Integration | The two ownership masks are disjoint, a commit reaches only an owned pin, reset or disable releases every output enable, an accepted start frame can strobe both engines while a rejected start strobes neither, and a program write is refused while that engine runs |
 
 The integration proof black-boxes the engines and the pin cells. The only assumption it adds is
 the pin cell's output-enable release, which the pin-cell proof establishes on its own. The
@@ -209,7 +211,7 @@ rejection.
 
 ## Not in this tree yet
 
-- Firmware images for UART, SPI, I2C and WS2812, and the independent peers that check them.
+- Firmware images for UART, SPI, I2C and WS2812.
 - The fresh Tiny Tapeout run and its evidence (source, netlist and GDS hashes).
 - The FPGA prototype. The intended board is an Arty A7-35T: a BRAM with the same registered-read
   contract as the SRAM wrapper, an MMCM making 48 MHz from 100 MHz, and a UART-to-SPI bridge.

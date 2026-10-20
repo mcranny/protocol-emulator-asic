@@ -226,8 +226,10 @@ module tt_um_mcranny_protocol_emulator_v3 (
     // atomically.
     wire start_cmd = host_cmd_valid && (code == CMD_START);
     wire stop_cmd  = host_cmd_valid && (code == CMD_STOP);
-    wire eng0_start = start_cmd && host_payload[0];
-    wire eng1_start = start_cmd && host_payload[1];
+    // START is all-or-nothing: a rejected START (any commanded engine's image
+    // incomplete) strobes neither engine. start_reject is declared below.
+    wire eng0_start = start_cmd && host_payload[0] && !start_reject;
+    wire eng1_start = start_cmd && host_payload[1] && !start_reject;
     wire eng0_stop  = stop_cmd  && host_payload[0];
     wire eng1_stop  = stop_cmd  && host_payload[1];
 
@@ -737,10 +739,15 @@ module tt_um_mcranny_protocol_emulator_v3 (
     // Property 1: the two ownership masks are disjoint.
     always @* assert ((own0 & own1) == 8'b0);
 
-    // Property 4: a single START frame commanding both engines strobes both
+    // Property 4: an accepted START commanding both engines strobes both
     // starts in the same cycle.
-    always @* if (start_cmd && host_payload[0] && host_payload[1])
+    always @* if (start_cmd && host_payload[0] && host_payload[1] && !start_reject)
         assert (eng0_start && eng1_start);
+
+    // Property 4b: START is all-or-nothing. A rejected START strobes neither
+    // engine, so a partially-loaded pair can never be half-started.
+    always @* if (start_cmd && start_reject)
+        assert (!eng0_start && !eng1_start);
 
     // Property 5: a program write is refused while that engine is running.
     always @* begin

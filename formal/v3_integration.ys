@@ -14,8 +14,8 @@
 #   1. The two ownership masks are disjoint: (own0 & own1) == 0.
 #   2. A commit strobe only reaches a pin the strobing engine owns.
 #   3. !ena or !rst_n releases every uio_oe bit.
-#   4. One START frame addressing both engines strobes both starts the same
-#      cycle.
+#   4. An accepted START addressing both engines strobes both starts the same
+#      cycle, and a rejected START (all-or-nothing) strobes neither engine.
 #   5. A program write is refused while the target engine is running.
 #
 # Method: temporal induction over the integrated wiring with the black-box

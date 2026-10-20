@@ -512,3 +512,50 @@ async def test_v3_host_read_returns_the_addressed_word(dut):
     assert replies[4].payload == word_x, (
         f"READ A (second) got {replies[4].payload:#010x}, expected {word_x:#010x}"
     )
+
+
+@cocotb.test()
+async def test_v3_partial_start_rejects_and_starts_neither_engine(dut):
+    """A START is all-or-nothing: a rejected START strobes neither engine.
+
+    Engine 0's image is complete and engine 1's is not. START 0b11 must reply
+    rejected and leave both engines stopped. A following START 0b01 is accepted
+    and runs engine 0 alone.
+    """
+    image0 = assemble("loop:\n    JMP target=loop\n")
+    chip = Chip(dut)
+    await chip.reset()
+
+    # Load engine 0 only; engine 1's program memory stays incomplete.
+    writes = [Frame(COMMANDS["WRITE"], addr, word) for addr, word in enumerate(image0.words)]
+    write_replies = await _transact(chip, writes)
+    for index, request in enumerate(writes):
+        assert not write_replies[index].cmd & REJECT_BIT, f"write {index} {request} rejected"
+
+    # START both: engine 1 is incomplete, so the whole frame is rejected.
+    reply = (await _transact(chip, [Frame(COMMANDS["START"], 0, 0b11)]))[0]
+    assert reply.cmd & REJECT_BIT, "a partial START was not rejected"
+
+    # Neither engine may run or drive a pin after the rejected START.
+    for _ in range(64):
+        await RisingEdge(dut.clk)
+        await ReadOnly()
+        status = int(dut.uo_out.value)
+        assert not (status >> 1) & 1, "engine 0 started on a rejected START"
+        assert not (status >> 2) & 1, "engine 1 started on a rejected START"
+    assert int(dut.uio_oe.value) == 0, "a pin was driven after a rejected START"
+
+    # START engine 0 alone; its image is complete, so it runs. Leave the
+    # read-only phase before the frame driver writes the SPI pins.
+    await RisingEdge(dut.clk)
+    await chip.frame(pack(COMMANDS["START"], 0, 0b01), finish=False)
+    started = False
+    for _ in range(64):
+        await RisingEdge(dut.clk)
+        await ReadOnly()
+        status = int(dut.uo_out.value)
+        if (status >> 1) & 1:
+            assert not (status >> 2) & 1, "engine 1 ran from a 0b01 START"
+            started = True
+            break
+    assert started, "engine 0 did not start from an accepted START"
