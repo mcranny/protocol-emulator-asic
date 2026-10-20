@@ -2,12 +2,11 @@
 `default_nettype none
 // V3 host SPI transport: mode 0, MSB first, frames of exactly 48 clocks.
 //
-// A frame is {cmd[7:0], addr[7:0], payload[31:0]}, first bit at bit 47 (see
-// host/protocol_emulator/v3/host.py). SCK, CS_n and MOSI pass through two
-// synchronizer flops, then SCK rising edges are counted while the
-// synchronized CS_n is low. The frame is accepted only when the count is
-// exactly 48; any other count raises frame_error for one clock and discards
-// the command.
+// A frame is {cmd[7:0], addr[7:0], payload[31:0]}, first bit at bit 47.
+// SCK, CS_n and MOSI pass through two synchronizer flops, then SCK rising
+// edges are counted while the synchronized CS_n is low. The frame is
+// accepted only when the count is exactly 48; any other count raises
+// frame_error for one clock and discards the command.
 //
 // The response to a frame is shifted out during the following frame: the
 // reply word is captured one clock after cmd_valid and held until the next
@@ -101,7 +100,6 @@ module v3_host_spi (
 
 `ifdef FORMAL
     // Proof bookkeeping only; none of this exists in the synthesized design.
-    // See formal/v3_host_spi.ys.
     wire ok = rst_n && ena;
 
     // The first sampled clock is a reset.

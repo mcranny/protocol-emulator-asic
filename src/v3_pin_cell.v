@@ -8,8 +8,7 @@
 // busy (`slot_free` low) until it fires. The signed distance `commit_due - now`
 // is interpreted as a two's-complement 24-bit number, so the ordering is
 // correct across the free-running timebase wrap as long as the true distance
-// stays inside +/-2**23 ticks. The reference behaviour is `model.PinCell` in
-// host/protocol_emulator/v3/model.py, which this module matches edge for edge.
+// stays inside +/-2**23 ticks.
 module v3_pin_cell (
     input  wire        clk,
     input  wire        rst_n,

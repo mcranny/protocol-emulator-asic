@@ -3,10 +3,8 @@
 // V3 programmable engine: fetch pipeline, cursor, registers, pin commits,
 // inputs, queues, events and CRC. One engine over eight shared pins.
 //
-// This module mirrors protocol_emulator.v3.model.Engine cycle for cycle. The
-// program memory, pin cells, byte/record queues and the CRC unit are external;
-// the engine talks to them over the interfaces below and is compared against
-// the Python model on every clock edge by test/support/v3_engine.py.
+// The program memory, pin cells, byte/record queues and the CRC unit are
+// external; the engine talks to them over the interfaces below.
 //
 // The fetch is registered: the address on `fetch_addr` delivers its word and
 // written bit on `fetch_data`/`fetch_written` the next cycle. A taken branch

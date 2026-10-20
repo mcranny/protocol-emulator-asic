@@ -2,12 +2,11 @@
 `default_nettype none
 // Capture unit. Samples pre-execution state; never controls an engine.
 //
-// Port of v2_capture.v (git show v2:src/v2_capture.v). Two differences:
-//  - Records are stamped with the shared 32-bit timestamp {epoch, now} from
-//    v3_timebase instead of a private counter restarted on arm. The stamp is
-//    absolute, so the arming record carries the time it was armed, and there
-//    is no stop-on-timestamp-saturation: reason 6 is never produced.
-//  - There is no timestamp output; read the timebase for the current time.
+// Records are stamped with the shared 32-bit timestamp {epoch, now} from
+// v3_timebase. The stamp is absolute, so the arming record carries the time
+// it was armed, and there is no stop-on-timestamp-saturation: reason 6 is
+// never produced. There is no timestamp output; read the timebase for the
+// current time.
 //
 // There is no ring wraparound. The store fills, then capture stops with
 // truncated set and reason 5, keeping the first DEPTH records.

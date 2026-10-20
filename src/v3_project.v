@@ -18,14 +18,9 @@
 //   ui_in[7:3] unused             uo_out[3] aggregate sticky error
 //   uio[7:0]  protocol pins 0..7  uo_out[7:4] unused (driven low)
 //
-// Connection notes (choices the module list did not spell out) are recorded in
-// .superpowers/sdd/task-20-report.md.
-//
-// The module must be named tt_um_mcranny_protocol_emulator_v3 (info.yaml
-// top_module and the Tiny Tapeout harness) while the file must be
-// src/v3_project.v (info.yaml source_files and the lint command path). Those
-// two mandates make Verilator's DECLFILENAME style warning unavoidable; it is
-// a pure naming note that hides no RTL issue, so it is scoped off only here.
+// The required file name and module name differ, which Verilator's
+// DECLFILENAME style check flags; neither name can change, so the check is
+// scoped off for this module only.
 /* verilator lint_off DECLFILENAME */
 module tt_um_mcranny_protocol_emulator_v3 (
     input  wire [7:0] ui_in,
@@ -371,10 +366,10 @@ module tt_um_mcranny_protocol_emulator_v3 (
     assign uio_oe = pin_oe_w;
 
     // ------------------------------------------------------------------
-    // Shared CRC/LFSR with fixed priority (engine 0 first). Engine 1's
-    // operation is routed only when engine 0 issues none this cycle. See the
-    // report for why single-cycle chaining of two simultaneous CRC ops is not
-    // reproducible with the committed sequential v3_crc.
+    // Shared CRC/LFSR, engine 0 has fixed priority. v3_crc performs at most
+    // one operation per clock, so it cannot chain two simultaneous requests
+    // within a cycle: engine 1's operation is dropped whenever engine 0
+    // issues one in the same cycle.
     // ------------------------------------------------------------------
     wire        crc0_cfg,  crc1_cfg;
     wire [15:0] crc0_poly, crc1_poly;
