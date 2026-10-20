@@ -20,6 +20,9 @@ returns a program correct for the requested rate or raises `ValueError`.
 | `uart_rx` | `uart_rx(pin, baud)` | 8N1 UART receiver on one pin |
 | `spi_controller` | `spi_controller(sclk, cs, mosi, miso, mode)` | SPI controller driving the clock and chip select |
 | `spi_target` | `spi_target(sclk, cs, mosi, miso, mode)` | SPI target reacting to the controller's clock |
+| `i2c_controller` | `i2c_controller(sda, scl, rate)` | I2C controller on two pins |
+| `i2c_target` | `i2c_target(sda, scl, rate, address)` | I2C target answering one address |
+| `i2c_bus_clear` | `i2c_bus_clear(sda, scl, rate)` | Nine-pulse I2C bus-clear recovery |
 
 ## UART
 
@@ -135,3 +138,104 @@ with `RXPOP`:
 The generated controller and target for mode 0 on pins `sclk=0`, `cs=1`,
 `mosi=2`, `miso=3` are checked in at `examples/v3/spi_controller_mode0.asm` and
 `examples/v3/spi_target_mode0.asm`.
+
+## I2C
+
+The I2C programs drive two protocol pins, `sda` and `scl`, which must be
+distinct pins `0`–`7`. `rate` is the SCL bit rate and must be one of the rates
+`protocol_emulator.v3.timing.I2C` supports (100 kHz and 400 kHz); any other
+rate raises `ValueError`. Every edge is open-drain: the firmware pulls a line
+low by enabling the pin's output with the pin-cell value held at zero, and
+releases a line by disabling the output so the bus pull-up restores the high
+level. No instruction ever requests a high drive on `sda` or `scl`.
+`i2c.scan_high_drives` makes that a checkable property of an assembled image,
+and both the model and RTL tests scan the controller and target images with it.
+
+All SCL phase timing comes from `timing.I2C[rate]`, the `(low, high)` cycle
+counts for the requested rate; no cycle count is written as a literal in the
+firmware.
+
+### Open-drain convention
+
+A driven line is `OE` with the output enabled and the pin-cell value zero, so
+the line is pulled low; a released line is `OE` with the output disabled, so the
+pull-up holds it high. Because the value is never one, a line is only ever
+actively pulled low or released — never driven high — which is exactly what an
+open-drain bus with wired-AND arbitration requires.
+
+### Controller
+
+`i2c_controller` runs a byte-stream interpreter. The host pushes a sequence of
+operations onto the transmit queue with `TXPUSH` and the program consumes them
+with `PULL`. Each operation is one **op byte**, some followed by one payload
+byte:
+
+| Operation | Op | Payload | Effect |
+|---|---|---|---|
+| START | `0x01` | addr/dir | START, then clock out the address byte |
+| WRITE | `0x02` | data | clock out one data byte |
+| READ | `0x03` | — | read one byte, answer ACK |
+| READ_NACK | `0x04` | — | read one byte, answer NACK |
+| REPEATED START | `0x05` | addr/dir | repeated START, then the address byte |
+| STOP | `0x06` | — | STOP |
+
+The **address/direction byte** is the 7-bit address in bits 7:1 and the
+read/write bit in bit 0 (`0` write, `1` read), exactly as it travels on the
+wire; the host composes it and the firmware clocks it out like any other byte.
+A "write `0xAB` to device `0x50`" transaction is the five bytes
+`0x01 0xA0 0x02 0xAB 0x06`. As for the UART transmitter, the host must keep the
+queue fed for the duration of a transaction: a `PULL` on an empty queue stalls
+with SCL held low, which is a legal controller-driven clock stretch.
+
+Every operation that exchanges a byte pushes one `RX` record, read back with
+`RXPOP` as `(value, meta)`:
+
+- START, REPEATED START and WRITE push `value = 0` and `meta` carrying the
+  acknowledge result: `RX_META_ACK` (0) when the target pulled SDA low in the
+  acknowledge slot, `RX_META_NACK` when it left SDA high, or `RX_META_ARB_LOST`
+  when the controller released SDA to send a one but read it low — it lost
+  arbitration, stopped driving, and abandoned the byte.
+- READ and READ_NACK push the received byte in `value` with `meta` flagging the
+  direction: `RX_META_READ`, plus `RX_META_LAST` for READ_NACK.
+
+STOP pushes no record. On a NACK the controller does not act on its own; the
+host sees the record and should issue STOP or a repeated START.
+
+### Clock stretching and arbitration
+
+During every data and acknowledge clock the controller releases SCL and then
+confirms the line actually rose before timing the high phase. If a target holds
+SCL low — a clock stretch — the controller waits for the real rising edge and
+anchors the high phase to it; when no stretch occurs the high phase is anchored
+to the scheduled release, so the measured low and high times equal the table
+exactly. START, STOP and repeated START use fixed timing and do not wait for a
+stretched SCL.
+
+Arbitration is checked on every one bit the controller sends: having released
+SDA, it samples the line while SCL is high, and if another driver is holding SDA
+low it records `RX_META_ARB_LOST`, releases SDA and SCL, and returns to the top
+of the interpreter without clocking the rest of the byte. It does not keep
+clocking a bus it has lost.
+
+### Target
+
+`i2c_target` matches one 7-bit `address`. It waits for a START, shifts in the
+address byte, and if it matches pulls SDA low to acknowledge; otherwise it
+leaves SDA high (NACK) and waits for the next START. On a write it receives
+bytes and pushes each with `RX` (`meta` `RX_META_WRITTEN`), acknowledging each;
+on a read it pulls bytes from the transmit queue and clocks them out, releasing
+SDA for the controller's acknowledge. After acknowledging the address it holds
+SCL low for a fixed stretch, so a controller that honours stretching waits — the
+clock-stretch demonstration. A START or STOP at any point re-synchronises the
+target.
+
+### Bus clear
+
+`i2c_bus_clear` recovers a bus a stuck target has left holding SDA low. It
+releases SDA and pulses SCL nine times, long enough for the target to finish the
+byte it was clocking out and release SDA, then issues a STOP. It exchanges no
+bytes and pushes no records.
+
+The generated programs for pins SDA 0 / SCL 1 are checked in at
+`examples/v3/i2c_controller_100k.asm` and `examples/v3/i2c_target_100k.asm` at
+100 kHz, and `examples/v3/i2c_bus_clear.asm`.

@@ -11,6 +11,7 @@ available firmware without importing each module.
 """
 from collections.abc import Callable
 
+from .i2c import i2c_bus_clear, i2c_controller, i2c_target
 from .spi import spi_controller, spi_target
 from .uart import uart_rx, uart_tx
 
@@ -22,6 +23,18 @@ PROGRAMS: dict[str, Callable[..., str]] = {
     "uart_rx": uart_rx,
     "spi_controller": spi_controller,
     "spi_target": spi_target,
+    "i2c_controller": i2c_controller,
+    "i2c_target": i2c_target,
+    "i2c_bus_clear": i2c_bus_clear,
 }
 
-__all__ = ["PROGRAMS", "uart_tx", "uart_rx", "spi_controller", "spi_target"]
+__all__ = [
+    "PROGRAMS",
+    "uart_tx",
+    "uart_rx",
+    "spi_controller",
+    "spi_target",
+    "i2c_controller",
+    "i2c_target",
+    "i2c_bus_clear",
+]
