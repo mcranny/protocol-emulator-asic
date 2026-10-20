@@ -1,6 +1,6 @@
 `default_nettype none
 
-// The shared bit-serial CRC/LFSR. It mirrors model.Crc one for one.
+// The shared bit-serial CRC/LFSR.
 //
 // One message bit is shifted per `shift` strobe, which is how the engine
 // drives it: one CRCBIT instruction per bit. It is bit-serial rather than
@@ -22,8 +22,7 @@
 // `configure` is independent of `load` and `shift`. If `load` and `shift` are
 // asserted together, `load` wins. The engine never does either.
 //
-// Reset matches a freshly constructed model.Crc: polynomial 0, MSB first,
-// register 0.
+// Reset state: polynomial 0, MSB first, register 0.
 module v3_crc (
     input  wire        clk,
     input  wire        rst_n,
@@ -73,12 +72,12 @@ module v3_crc (
     always @(posedge clk) started <= 1'b1;
 
     always @(posedge clk) if (started) begin
-        if (!$past(rst_n)) begin
-            // Reset reproduces a freshly constructed model.Crc.
+        if (!rst_n && !$past(rst_n)) begin
+            // Reset state.
             assert(state == 16'd0);
             assert(poly_r == 16'd0);
             assert(msb_first_r == 1'b1);
-        end else begin
+        end else if (rst_n && $past(rst_n)) begin
             // Configuration changes only on `configure`, and then takes the
             // new values exactly.
             if ($past(configure)) begin

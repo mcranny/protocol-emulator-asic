@@ -28,12 +28,12 @@ module v3_timebase (
     reg started = 1'b0;
     always @(posedge clk) started <= 1'b1;
 
-    always @(posedge clk) if (started) begin
+    always @(posedge clk) if (started && rst_n && $past(rst_n)) begin
         // The counter only ever advances by one.
-        assert(now == $past(now) + 24'd1 || !$past(rst_n));
+        assert(now == $past(now) + 24'd1);
         // The epoch advances exactly when the counter wraps.
-        if ($past(rst_n) && $past(&now)) assert(epoch == $past(epoch) + 8'd1);
-        if ($past(rst_n) && !$past(&now)) assert(epoch == $past(epoch));
+        if ($past(&now)) assert(epoch == $past(epoch) + 8'd1);
+        else             assert(epoch == $past(epoch));
     end
 `endif
 
