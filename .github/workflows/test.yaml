@@ -15,3 +15,27 @@ jobs:
           pip install -r test/requirements.txt
       - name: Python tests
         run: python -m pytest tests -q
+      - name: cocotb suites
+        run: |
+          set -e
+          make -C test -f Makefile.v3timebase
+          make -C test -f Makefile.v3pincell
+          make -C test -f Makefile.v3filter
+          make -C test -f Makefile.v3progmem
+          make -C test -f Makefile.v3crc
+          make -C test -f Makefile.v3engine
+          make -C test -f Makefile.v3host
+          make -C test -f Makefile.v3capture
+          make -C test -f Makefile.v3project
+      - name: Formal proofs
+        run: |
+          set -e
+          yosys -q formal/v3_timebase.ys
+          yosys -q formal/v3_pin_cell.ys
+          yosys -q formal/v3_input_filter.ys
+          yosys -q formal/v3_progmem.ys
+          yosys -q formal/v3_crc.ys
+          yosys -q formal/v3_engine.ys
+          yosys -q formal/v3_host_spi.ys
+          yosys -q formal/v3_capture.ys
+          yosys -q formal/v3_integration.ys
