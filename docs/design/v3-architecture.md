@@ -155,9 +155,13 @@ supply stripes only, and a stripe feeds a macro only where it lands on that macr
 so the power grid is derived from this macro's LEF rather than from the published 512x32
 walkthrough. The columns are 2.81 µm wide on an 11.24 µm pitch, but the right half of the macro is
 0.67 µm off the left half's phase. The stripes are therefore 2.81 µm wide at a 44.96 µm pitch,
-aligned to the left-half columns. They stop at the macro edges and abut the column ends.
-A Metal4 power-grid obstruction keeps the off-phase stripes clear of both macros. The physical
-configuration is `physical/v3/config.json`. It also sets a 2 µm placement halo, Metal2 to Metal4
+aligned to the left-half columns, with the first stripe centred 5.665 µm from the core edge.
+The power-grid generator stops core stripes short of a macro and has no layer above Metal4 to
+join them through, so `physical/v3/pdn_cfg.tcl` extends each stripe end that lines up with a
+supply column of its own net 1 µm onto that column. Each macro gets 16 such bridges across 4 VDD,
+4 VDDARRAY and 4 VSS columns, and the script fails if a macro gets none. A Metal4 power-grid
+obstruction keeps the off-phase stripes clear of both macros. The physical configuration is
+`physical/v3/config.json`. It also sets a 2 µm placement halo, Metal2 to Metal4
 routing obstructions over each macro body, and one antenna diode on every SRAM input.
 
 The flow is the stock Tiny Tapeout flow, run locally from RTL. Release evidence is a fresh run:
@@ -235,8 +239,7 @@ rejection.
 1. Whether the Tiny Tapeout timing constraints set I/O delay as a fraction of the clock or as a
    fixed value. That decides whether external paths close at 48 MHz, and the first timing run
    answers it.
-2. Whether the power-grid step lands the stripes on the macro supply columns as configured. The
-   IR-drop report and a layout view of the first run settle it; an unpowered macro still passes
-   DRC and LVS.
+2. Whether 4 columns per supply hold IR drop within budget at the macros. The power grid
+   connects both macros on every supply, but IR drop is only reported after placement.
 3. The PDK commit the precheck pins at hardening time.
 4. CMOS5L pad characterization, which Tiny Tapeout has not published.

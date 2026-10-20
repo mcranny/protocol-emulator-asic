@@ -10,7 +10,7 @@ CONFIG = json.loads((ROOT / "physical/v3/config.json").read_text())
 SRAM = "RM_IHPSG13_1P_256x32_c2_bm_bist"
 MACRO_W, MACRO_H = 416.64, 118.78
 # Left edge of the first placement site in the Tiny Tapeout CMOS5L tile templates;
-# the power grid offset is measured from it.
+# pdngen measures the offset of the first stripe's centre from it.
 CORE_X0 = 2.88
 CORNERS = {"nom_slow_1p08V_125C", "nom_typ_1p20V_25C", "nom_fast_1p32V_m40C"}
 
@@ -92,7 +92,7 @@ def test_placement_halo():
 
 def stripes():
     pitch, width = CONFIG["FP_PDN_VPITCH"], CONFIG["FP_PDN_VWIDTH"]
-    first = CORE_X0 + CONFIG["FP_PDN_VOFFSET"]
+    first = CORE_X0 + CONFIG["FP_PDN_VOFFSET"] - width / 2
     for k in range(int(1724.16 // pitch) + 1):
         vdd = first + k * pitch
         yield vdd, vdd + width + CONFIG["FP_PDN_VSPACING"]
@@ -111,7 +111,6 @@ def test_power_stripes_land_on_macro_supply_columns():
     assert CONFIG["FP_PDN_VPITCH"] != 50.0
     assert close(width, 2.81)
     assert close(CONFIG["FP_PDN_VPITCH"] % 11.24, 0) or close(CONFIG["FP_PDN_VPITCH"] % 11.24, 11.24)
-    assert CONFIG["FP_PDN_VERTICAL_HALO"] == 0
     for inst in instances().values():
         mx0, my0, mx1, my1 = footprint(inst)
         landed = {"VDD": 0, "VSS": 0}
@@ -125,6 +124,13 @@ def test_power_stripes_land_on_macro_supply_columns():
                 assert any(close(local, c) for net in nets for c in columns[net]), (kind, local)
                 landed[kind] += 1
         assert landed["VDD"] >= 4 and landed["VSS"] >= 4
+
+
+def test_power_grid_script_bridges_stripes_onto_macros():
+    assert CONFIG["PDN_CFG"] == "dir::pdn_cfg.tcl"
+    script = (ROOT / "physical/v3/pdn_cfg.tcl").read_text()
+    assert "rename pdngen v3_pdngen" in script
+    assert "v3_bridge_macro_columns" in script
 
 
 def test_routing_obstructions_cover_each_macro_on_metal2_to_metal4():
