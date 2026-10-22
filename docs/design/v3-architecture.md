@@ -174,7 +174,8 @@ hold slack and at least +2 ns worst slow-corner register-to-register setup slack
 The die is 8x4 tiles (1724.16 x 710.64 µm), using the CMOS5L 8x4 template from Tiny Tapeout
 support tools `d66cf17`. The two SRAM macros sit on the left edge, about 98,977 µm² together,
 stacked with their signal pins facing a shared channel: the lower macro is mirrored (`FS`) at
-y = 215.46 µm and the upper one is upright at y = 374.22 µm. The CMOS5L tile has vertical Metal4
+y = 215.46 µm and the upper one is upright at y = 434.70 µm, leaving 100.46 µm between them.
+The CMOS5L tile has vertical Metal4
 supply stripes only, and a stripe feeds a macro only where it lands on that macro's supply column,
 so the power grid is derived from this macro's LEF rather than from the published 512x32
 walkthrough. The columns are 2.81 µm wide on an 11.24 µm pitch, but the right half of the macro is
@@ -184,9 +185,11 @@ The power-grid generator stops core stripes short of a macro and has no layer ab
 join them through, so `physical/v3/pdn_cfg.tcl` extends each stripe end that lines up with a
 supply column of its own net 1 µm onto that column. Each macro gets 16 such bridges across 4 VDD,
 4 VDDARRAY and 4 VSS columns, and the script fails if a macro gets none. A Metal4 power-grid
-obstruction keeps the off-phase stripes clear of both macros. The physical configuration is
-`physical/v3/config.json`. It also sets a 2 µm placement halo, Metal2 to Metal4
-routing obstructions over each macro body, and one antenna diode on every SRAM input.
+obstruction covers the off-phase half of each macro, with 4 µm of margin, and stops at the
+channel so the in-phase stripes can still reach both pin edges. The physical configuration is
+`physical/v3/config.json`. It also sets a 2 µm placement halo and Metal2 to Metal4
+routing obstructions over each macro body, leaving the 1 µm pin edge open. Antenna repair
+inserts diodes where the router needs them; none are placed in the pin channel ahead of routing.
 
 The flow is the stock Tiny Tapeout flow, run locally from RTL. Release evidence is a fresh run:
 precheck, KLayout DRC, LVS, extracted timing and gate-level tests with the SRAM model. That run

@@ -3,8 +3,6 @@ import math
 import re
 from pathlib import Path
 
-import pytest
-
 ROOT = Path(__file__).resolve().parents[2]
 CONFIG = json.loads((ROOT / "physical/v3/config.json").read_text())
 SRAM = "RM_IHPSG13_1P_256x32_c2_bm_bist"
@@ -66,7 +64,10 @@ def test_two_macros_on_left_edge_with_pins_facing():
     # mirrored so its pins face up into the channel shared with the upper one.
     assert lower["orientation"] == "FS"
     assert upper["orientation"] == "N"
-    assert footprint(lower)[3] < upper["location"][1]
+    # Sixteen standard-cell rows, so the two pin edges do not share a 40 um slot.
+    gap = upper["location"][1] - footprint(lower)[3]
+    assert gap >= 16 * 3.78
+    assert close(upper["location"][1] % 3.78, 0)
 
 
 def test_each_macro_connects_both_supplies():
@@ -150,28 +151,18 @@ def test_routing_obstructions_cover_each_macro_on_metal2_to_metal4():
             assert close(oy0, my0) if inst["orientation"] == "FS" else close(oy1, my1)
 
 
-def sram_inputs():
-    text = (ROOT / "src/v3_sram_blackbox.vh").read_text()
-    pins = []
-    for msb, name in re.findall(r"input\s+wire\s+(?:\[(\d+):0\]\s+)?(\w+)", text):
-        pins += [f"{name}[{i}]" for i in range(int(msb) + 1)] if msb else [name]
-    return pins
-
-
-def test_one_antenna_diode_per_sram_input():
-    targets = [d["target"] for d in CONFIG["INSERT_ECO_DIODES"]]
-    assert len(targets) == len(set(targets))
-    inputs = sram_inputs()
-    assert len(inputs) == 154
-    assert set(targets) == {f"{inst}/{pin}" for inst in instances() for pin in inputs}
-    assert all(len(d["placement"]) == 2 for d in CONFIG["INSERT_ECO_DIODES"])
+def test_pin_channel_has_no_preplaced_diodes_or_power_obstruction():
+    assert CONFIG["INSERT_ECO_DIODES"] == []
     assert CONFIG["DIODE_CELL"] == "sg13cmos5l_antennanp/A"
+    assert CONFIG["GRT_ANTENNA_REPAIR_ITERS"] >= 1
+    assert CONFIG["DRT_ANTENNA_REPAIR_ITERS"] >= 1
     assert CONFIG["meta"]["substituting_steps"]["+OpenROAD.GlobalRouting"] == "Odb.InsertECODiodes"
-
-
-@pytest.mark.parametrize("orientation,edge", [("FS", "top"), ("N", "bottom")])
-def test_diodes_sit_on_the_pin_side(orientation, edge):
-    inst_name, inst = next((n, i) for n, i in instances().items() if i["orientation"] == orientation)
-    _, my0, _, my1 = footprint(inst)
-    ys = {d["placement"][1] for d in CONFIG["INSERT_ECO_DIODES"] if d["target"].startswith(inst_name + "/")}
-    assert all(y > my1 for y in ys) if edge == "top" else all(y < my0 for y in ys)
+    lower, upper = sorted(instances().values(), key=lambda i: i["location"][1])
+    gap_bottom = footprint(lower)[3]
+    gap_top = upper["location"][1]
+    mid_y = (gap_bottom + gap_top) / 2
+    for x in (50.0, 300.0):
+        assert not any(
+            layer == "Metal4" and ox0 <= x <= ox1 and oy0 <= mid_y <= oy1
+            for layer, ox0, oy0, ox1, oy1 in CONFIG["PDN_OBSTRUCTIONS"]
+        )
