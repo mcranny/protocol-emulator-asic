@@ -187,9 +187,18 @@ supply column of its own net 1 µm onto that column. Each macro gets 16 such bri
 4 VDDARRAY and 4 VSS columns, and the script fails if a macro gets none. A Metal4 power-grid
 obstruction covers the off-phase half of each macro, with 4 µm of margin, and stops at the
 channel so the in-phase stripes can still reach both pin edges. The physical configuration is
-`physical/v3/config.json`. It also sets a 2 µm placement halo and Metal2 to Metal4
-routing obstructions over each macro body, leaving the 1 µm pin edge open. Antenna repair
-inserts diodes where the router needs them; none are placed in the pin channel ahead of routing.
+`physical/v3/config.json`. It also sets Metal2 to Metal4 routing obstructions over each macro
+body, leaving the 1 µm pin edge open, and antenna repair inserts diodes where the router needs
+them; none are placed in the pin channel ahead of routing.
+
+A first routed pass at a 2 µm placement halo put almost every DRC marker on or beside the
+macros: most in the 80 µm strip to their right and in the first 40 µm of the channel above the
+lower macro's pins, where standard cells sat on the pin escape. The placement halo is 80 µm
+horizontal and 50 µm vertical, which keeps cells out of that strip and, from both macros
+together, out of nearly the whole channel. Detailed routing's own antenna-repair loop
+(`DRT_ANTENNA_REPAIR_ITERS`) is off: on that same run it reran a full 64-iteration route after
+finding violations and nearly doubled the marker count. Antenna repair before detailed routing
+(`GRT_ANTENNA_REPAIR_ITERS`) still runs.
 
 The flow is the stock Tiny Tapeout flow, run locally from RTL. Release evidence is a fresh run:
 precheck, KLayout DRC, LVS, extracted timing and gate-level tests with the SRAM model. That run

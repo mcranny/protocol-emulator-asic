@@ -87,8 +87,17 @@ def test_liberty_corners_mapped():
 
 
 def test_placement_halo():
-    assert CONFIG["FP_MACRO_HORIZONTAL_HALO"] == 2
-    assert CONFIG["FP_MACRO_VERTICAL_HALO"] == 2
+    # The first routed pass at a 2 um halo put most of its DRC markers beside
+    # and above the macros: 2,491 within 80 um of either side and another 358
+    # above the upper macro. The halo has to clear both.
+    assert CONFIG["FP_MACRO_HORIZONTAL_HALO"] == 80
+    assert CONFIG["FP_MACRO_VERTICAL_HALO"] == 50
+    lower, upper = sorted(instances().values(), key=lambda i: i["location"][1])
+    gap = upper["location"][1] - footprint(lower)[3]
+    # Each macro's vertical halo reaches into the channel from its own side;
+    # together they have to clear nearly all of it so no cell sits on the
+    # pin escape.
+    assert 2 * CONFIG["FP_MACRO_VERTICAL_HALO"] >= gap - 1.0
 
 
 def stripes():
@@ -154,8 +163,12 @@ def test_routing_obstructions_cover_each_macro_on_metal2_to_metal4():
 def test_pin_channel_has_no_preplaced_diodes_or_power_obstruction():
     assert CONFIG["INSERT_ECO_DIODES"] == []
     assert CONFIG["DIODE_CELL"] == "sg13cmos5l_antennanp/A"
+    # Antenna repair before detailed routing (and the one-time diode pass
+    # substituted for it) stays on. The repair loop inside detailed routing
+    # itself is off: on the previous run it re-ran a full 64-iteration route
+    # after finding violations and nearly doubled the marker count.
     assert CONFIG["GRT_ANTENNA_REPAIR_ITERS"] >= 1
-    assert CONFIG["DRT_ANTENNA_REPAIR_ITERS"] >= 1
+    assert CONFIG["DRT_ANTENNA_REPAIR_ITERS"] == 0
     assert CONFIG["meta"]["substituting_steps"]["+OpenROAD.GlobalRouting"] == "Odb.InsertECODiodes"
     lower, upper = sorted(instances().values(), key=lambda i: i["location"][1])
     gap_bottom = footprint(lower)[3]
