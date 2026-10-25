@@ -80,11 +80,27 @@ python3 tools/local_flow.py --check-only --output /tmp/protocol-route-01
 Use `--stage full` with a fresh output directory for the complete Classic GDS
 flow, including its enabled DRC/LVS/checker steps. Neither mode runs Tiny
 Tapeout precheck or this repository's gate-level and functional regressions.
+A failed `route` or `full` run still checks the final metrics LibreLane wrote,
+so `local-evidence.json` names the checks it missed.
+
+Two shorter stages check the floorplan before a full run. `--stage pdn` stops
+after the power grid is generated. `--stage grt` stops after global routing,
+its repair steps and the mid-route timing report, which covers only the fast
+corner. Neither is judged on routed metrics.
+
+Inside the container the runner starts LibreLane in its own process rather than
+with `python -m librelane`. It does this so it can repair the Netgen LVS report
+before LibreLane reads it. Netgen copies escaped Verilog names, such as the SRAM
+supply pins `\VDD!` and `\VDDARRAY!`, into `lvs.netgen.json` without escaping
+the backslash, and the pinned LibreLane stops on the invalid JSON after LVS has
+already run. The runner doubles only backslashes that do not start a valid JSON
+escape. It changes nothing else, so a real LVS mismatch is still reported.
 
 The helper copies only `info.yaml`, physical configuration, and Verilog inputs
 to an isolated workspace. Original sources and dependencies are not changed;
 existing output directories are never overwritten. It records the source
-commit, dirty-state flag, exact input hashes, image identity/architecture,
+commit, dirty-state flag, the copied files that differ from that commit, exact
+input hashes, image identity/architecture,
 dependency revisions, runner hash, stage, and exit status in
 `local-evidence.json`. Tool versions and console output are in `flow.log`.
 The generated user configuration matches the pinned support-tools recipe;
