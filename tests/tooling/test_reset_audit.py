@@ -35,6 +35,69 @@ def test_formal_mode_only_initializes_reset_history(name, value):
         inspect(data, formal=True)
 
 
+def test_v3_formal_bookkeeping_may_start_at_zero():
+    data = {
+        "modules": {
+            "v3_pin_cell": {"netnames": {"valid": {"attributes": {"init": "0"}}}},
+            "v3_engine": {"netnames": {"f_past_valid": {"attributes": {"init": "0"}}}},
+            "v3_host_spi": {"netnames": {"started": {"attributes": {"init": "0"}}}},
+            "v3_capture": {"netnames": {"past_valid": {"attributes": {"init": "0"}}}},
+            "v3_input_filter": {"netnames": {"valid": {"attributes": {"init": "0"}}}},
+        }
+    }
+    result = inspect(data, formal=True)
+    assert {item["module"] for item in result["formal_bookkeeping"]} == set(data["modules"])
+
+
+def test_a_parametrized_fifo_keeps_its_bookkeeping_name():
+    data = {
+        "modules": {
+            r"$paramod$abc\v3_fifo": {
+                "netnames": {"started": {"attributes": {"init": "0"}}}
+            }
+        }
+    }
+    result = inspect(data, formal=True)
+    assert result["formal_bookkeeping"][0]["module"].endswith("v3_fifo")
+
+
+def test_a_capture_parameter_suffix_keeps_its_bookkeeping_name():
+    data = {
+        "modules": {
+            r"$paramod\v3_capture\DEPTH=s32'100000": {
+                "netnames": {"past_valid": {"attributes": {"init": "0"}}}
+            }
+        }
+    }
+    result = inspect(data, formal=True)
+    assert result["formal_bookkeeping"][0]["name"] == "past_valid"
+
+
+def test_host_chip_select_history_starts_high():
+    data = {
+        "modules": {
+            "v3_host_spi": {"netnames": {"cs_q": {"attributes": {"init": "1"}}}}
+        }
+    }
+    result = inspect(data, formal=True)
+    assert result["formal_bookkeeping"] == [
+        {"module": "v3_host_spi", "name": "cs_q", "value": "1"}
+    ]
+    data["modules"]["v3_host_spi"]["netnames"]["cs_q"]["attributes"]["init"] = "0"
+    with pytest.raises(ValueError, match="initialized state"):
+        inspect(data, formal=True)
+
+
+def test_v3_formal_bookkeeping_rejects_a_real_register():
+    data = {
+        "modules": {
+            "v3_engine": {"netnames": {"running_r": {"attributes": {"init": "0"}}}}
+        }
+    }
+    with pytest.raises(ValueError, match="initialized state"):
+        inspect(data, formal=True)
+
+
 def test_formal_history_does_not_initialize_memory():
     data = {
         "modules": {
