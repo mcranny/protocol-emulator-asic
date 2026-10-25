@@ -133,6 +133,12 @@ def test_fail_sets_a_firmware_error_and_halts() -> None:
     assert engine.halted
 
 
+def test_the_last_program_word_executes() -> None:
+    engine = run("JMP target=255\nFAIL code=1\n", cycles=6)
+    assert engine.halted
+    assert engine.errors == 0, "address 255 is a real word, filled with HALT"
+
+
 def test_an_illegal_word_faults() -> None:
     engine = model.Engine(pins=[model.PinCell() for _ in range(8)], owner=0xFF)
     engine.load(isa.assemble("HALT\n"))

@@ -276,3 +276,18 @@ interaction. Its generated program for pin 0 is checked in at
 `examples/v3/ws2812_rainbow.asm`. The [flexibility](flexibility.md) page places
 the WS2812 transmitter next to the UART one to show that only the firmware
 differs.
+
+## External hardware
+
+No Pmod is required. The host is a mode-0 SPI controller on `ui_in[2:0]`, as
+the [datasheet](info.md) describes.
+
+I2C needs a pull-up on SDA and on SCL. The firmware never drives either line
+high; a released line reads as one only because the pull-up makes it so. The
+resistance is a board choice. The programs meet the low and high times in
+`protocol_emulator.v3.timing.I2C`: 4.7 µs and 4.0 µs at 100 kHz, 1.3 µs and
+0.6 µs at 400 kHz.
+
+A WS2812 strip that runs at a higher voltage than the pad needs a level shifter
+on the data pin. This page does not state a pad voltage, and it does not name a
+shifter.
