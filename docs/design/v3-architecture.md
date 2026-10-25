@@ -172,38 +172,114 @@ capacitance and fanout violations at all three corners, with at least +0.10 ns w
 hold slack and at least +2 ns worst slow-corner register-to-register setup slack.
 
 The die is 8x4 tiles (1724.16 x 710.64 µm), using the CMOS5L 8x4 template from Tiny Tapeout
-support tools `d66cf17`. The two SRAM macros sit on the left edge, about 98,977 µm² together,
-stacked with their signal pins facing a shared channel: the lower macro is mirrored (`FS`) at
-y = 215.46 µm and the upper one is upright at y = 434.70 µm, leaving 100.46 µm between them.
+support tools `d66cf17`. The two SRAM macros, about 98,977 µm² together, sit side by side on
+the bottom edge at y = 15.60 µm, at x = 2.88 µm and x = 452.48 µm. Both are mirrored (`FS`) so
+their signal pins face up into the core. They sit 0.48 µm above the row boundary at 15.12 µm
+because the Metal1 power rail on that boundary would otherwise come within 0.065 µm of Metal1
+inside the SRAM. Nothing is placed below or between them, so no net has
+to cross a macro. Stacked on the left edge instead, each macro walled the logic under the
+top-edge I/O pins off from the logic below it, and global routing ran 112 nets through them.
 The CMOS5L tile has vertical Metal4
 supply stripes only, and a stripe feeds a macro only where it lands on that macro's supply column,
 so the power grid is derived from this macro's LEF rather than from the published 512x32
 walkthrough. The columns are 2.81 µm wide on an 11.24 µm pitch, but the right half of the macro is
 0.67 µm off the left half's phase. The stripes are therefore 2.81 µm wide at a 44.96 µm pitch,
 aligned to the left-half columns, with the first stripe centred 5.665 µm from the core edge.
+The second macro is ten stripe pitches (449.6 µm) right of the first, so its columns have the
+same phase.
 The power-grid generator stops core stripes short of a macro and has no layer above Metal4 to
 join them through, so `physical/v3/pdn_cfg.tcl` extends each stripe end that lines up with a
 supply column of its own net 1 µm onto that column. Each macro gets 16 such bridges across 4 VDD,
 4 VDDARRAY and 4 VSS columns, and the script fails if a macro gets none. A Metal4 power-grid
-obstruction covers the off-phase half of each macro, with 4 µm of margin, and stops at the
-channel so the in-phase stripes can still reach both pin edges. The physical configuration is
-`physical/v3/config.json`. It also sets Metal2 to Metal4 routing obstructions over each macro
+obstruction covers the off-phase half of each macro and ends 4 µm past its top and bottom
+edges, so the in-phase stripes still reach both ends of the columns. The physical configuration
+is `physical/v3/config.json`. It also sets Metal2 to Metal4 routing obstructions over each macro
 body, leaving the 1 µm pin edge open, and antenna repair inserts diodes where the router needs
-them; none are placed in the pin channel ahead of routing.
+them; none are placed ahead of routing.
 
-A first routed pass at a 2 µm placement halo put almost every DRC marker on or beside the
-macros: most in the 80 µm strip to their right and in the first 40 µm of the channel above the
-lower macro's pins, where standard cells sat on the pin escape. The placement halo is 80 µm
-horizontal and 50 µm vertical, which keeps cells out of that strip and, from both macros
-together, out of nearly the whole channel. Detailed routing's own antenna-repair loop
-(`DRT_ANTENNA_REPAIR_ITERS`) is off: on that same run it reran a full 64-iteration route after
-finding violations and nearly doubled the marker count. Antenna repair before detailed routing
-(`GRT_ANTENNA_REPAIR_ITERS`) still runs.
+Each macro has 186 signal pins, 110 of them tied off, and their tie cells and output buffers
+have to sit near the pins. The placement halo is 10 µm above and below each macro and 20 µm
+beside it. The two side halos cover the 32.96 µm gap between the macros, which would otherwise
+be a pocket of rows with its own short power stripes. An 80 µm horizontal and 50 µm vertical
+halo pushed every tie cell and output buffer 80 µm away from the pins, and the routed result
+had 41 SRAM outputs over their capacitance limit. Global routing uses a 0.2 capacity adjustment
+and may not finish with congestion, so an overflow stops the flow at that step. At 0.3 it
+overflowed, and at 0.15 the slow-corner setup slack after global routing fell to 0.20 ns,
+against 0.31 to 0.87 ns in two runs at 0.2.
+
+`DESIGN_REPAIR_MAX_WIRE_LENGTH` is 190 µm. Left at its 0 (disabled) default, repair only buffers
+a net for slew or capacitance, not for length on its own, and one SRAM output had no load
+anywhere nearby: `u_progmem1.u_sram/A_DOUT[3]` drove straight to its first standard-cell load
+about 319 µm away, well outside the 10 µm halo, with nothing in between. That left 0.087 pF on a
+0.064 pF pin, since the wire's own capacitance, undivided by any buffer, was charged to the
+macro's weak output driver. The post-global-route repair pass found that violation but did not
+fix it. Capping the buffering distance at 190 µm, below the roughly 190-235 µm break-even for
+that pin, makes a repair pass split a run like that instead. It is set on the pre-route repair
+(`OpenROAD.RepairDesignPostGPL`) rather than the post-route one (`OpenROAD.RepairDesignPostGRT`):
+the same 100 µm cap applied after global routing had to re-split routes global routing had
+already committed to, which added about 22,500 buffers across its two repair passes (13,000 of
+them in the larger single pass alone) and overflowed routing.
+Applied before routing instead, the splits are placed and legalized once, and global routing
+only has to route the result.
+
+Fixing this violation has a cost: the roughly 3,300 extra buffers it adds shift enough paths that
+slow-corner `timing__setup_r2r__ws` (a dedicated single-corner rerun of `OpenROAD.STAMidPNR-3`,
+since that step itself only analyzes the first of `PNR_CORNERS`, the fast corner) dropped from
++0.31 ns (uncapped, with the one violation) to +0.15 ns at 190 µm. Loosening the cap to 230 µm did
+not recover that margin; it reintroduced a different capacitance violation and took the fast
+corner's own r2r setup slack negative instead, so the tool's response to this one knob is not
+monotonic and was not pursued further. 190 µm is accepted with 0 known capacitance or slew
+violations and +0.15 ns of pre-route register-to-register margin at the slow corner; final timing
+is decided by the signed-off post-route numbers, not this estimate.
+
+That pre-route estimate was low. On the routed design, extracted net capacitance was 1.29 times
+the estimate, weighted by capacitance, and the same slow-corner register-to-register slack came
+out at −3.63 ns. `LAYERS_RC` capacitance for Metal1 through Metal4 is therefore 1.29 times the
+earlier value, so repair and the pre-route timing see a wire load in line with extraction.
+Removing the 190 µm cap on top of that, to let repair add still more buffers, overflowed global
+routing: the post-global-route repair pass hit a heap underflow on `pm1_fetch_data[9]` after
+inserting 4444 buffers. The cap stays.
+
+With the calibrated values, slow-corner register-to-register slack was −0.28 ns before routing and
+−2.43 ns extracted, on 52 paths that all launch from an SRAM output. No timing repair runs after
+detailed routing, so the setup repair after clock-tree synthesis and after global routing
+(`PL_RESIZER_SETUP_SLACK_MARGIN`, `GRT_RESIZER_SETUP_SLACK_MARGIN`) aims at 2.0 ns, the signoff
+margin, instead of the 0.05 and 0.025 ns defaults. In a preliminary run that took the pre-route
+slack to +1.79 ns, mostly by upsizing about 280 cells; it added 22 cells.
+
+Global placement is timing-driven (`PL_TIMING_DRIVEN`). Without it, the worst SRAM-launched path
+wandered about 5,600 µm across the die. With it, at the same margins, slow-corner pre-route slack
+rose to +2.18 ns. The cost is placement time, 11 minutes 40 seconds against about 1 minute 20
+seconds before, and 9.9% more cell area from the repair it runs during placement.
+
+Clock-tree synthesis balances the macro clock against the register tree by putting 13 delay
+buffers, 1.55 ns at the slow corner, in front of both SRAM `A_CLK` pins and nowhere else. That
+delay comes straight out of every failing path, while the register-to-SRAM paths it protects
+have more than 15 ns of setup slack. `CTS_DELAY_BUFFER_DERATE_PCT` does not remove it: at 0, 1
+and 0.5 the flow passes `-delay_buffer_derate` through and OpenROAD still inserts all 13, and no
+other clock-tree variable in this LibreLane version reaches the latency-balancing stage.
+
+The halo cuts the placement rows just above and below each macro, and the power generator will
+not strap a supply stripe across a gap with no row, which leaves the SRAM `VDD!` pins
+unconnected. The power script puts those row segments back while it builds the grid, so the
+stripes and their rail vias are created, then removes the rows again. No cell is placed within
+the halo. Mirroring puts each macro's `VDDARRAY!` column ends at the bottom, so `VDDARRAY!` is fed
+only by the short stripes below the macros, which reach the rest of the grid through the Metal1
+rails of the restored rows. Antenna repair before detailed routing (`GRT_ANTENNA_REPAIR_ITERS`)
+runs, but the routed result still had 12 Metal3 antenna violations, the worst at 1.24 times its
+limit. Detailed routing's own antenna-repair loop (`DRT_ANTENNA_REPAIR_ITERS`) therefore gets
+one diode-only pass. Each pass re-runs detailed routing, and on a congested earlier floorplan a
+longer loop re-ran a full 64-iteration route and nearly doubled the marker count.
+
+IR drop is reported on every full run. Without `VSRC_LOC_FILES` the analysis feeds the grid
+at the library voltage, and the bottom-edge run found every `VPWR` and `VGND` shape connected,
+`VDDARRAY!` included, with a worst-case drop of 0.25 mV (0.02%). Magic DRC stays off: the Tiny
+Tapeout precheck for CMOS5L runs KLayout DRC with the SG13CMOS5L deck and does not run Magic,
+and KLayout DRC runs in the flow.
 
 The flow is the stock Tiny Tapeout flow, run locally from RTL. Release evidence is a fresh run:
-precheck, KLayout DRC, LVS, extracted timing and gate-level tests with the SRAM model. That run
-has not been done for V3 yet. No pad timing is claimed until Tiny Tapeout publishes CMOS5L pad
-data.
+precheck, KLayout DRC, LVS, extracted timing and gate-level tests with the SRAM model. No V3
+run has passed it yet. No pad timing is claimed until Tiny Tapeout publishes CMOS5L pad data.
 
 ## Toolchain
 

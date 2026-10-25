@@ -244,8 +244,77 @@ proc v3_bridge_macro_columns {} {
     }
 }
 
+# The placement halo cuts the rows just above and below each macro, and the
+# power generator will not strap a stripe across a gap with no row, so the
+# stripes stop short of the supply columns. Put those row segments back for
+# the generator, then remove them again so placement still keeps out of the
+# halo. Rows level with a macro body are left alone.
+proc v3_restore_halo_rows {} {
+    set block [ord::get_db_block]
+    set bodies {}
+    foreach inst [$block getInsts] {
+        if { ![[$inst getMaster] isBlock] } { continue }
+        set box [$inst getBBox]
+        lappend bodies [list [$box yMin] [$box yMax]]
+    }
+    set left ""
+    array set segments {}
+    foreach row [$block getRows] {
+        set bbox [$row getBBox]
+        if { $left == "" || [$bbox xMin] < $left } { set left [$bbox xMin] }
+        lappend segments([$bbox yMin]) $row
+    }
+    set pending {}
+    foreach y [array names segments] {
+        set rows $segments($y)
+        set first [lindex $rows 0]
+        foreach row $rows {
+            if { [[$row getBBox] xMin] < [[$first getBBox] xMin] } { set first $row }
+        }
+        set bbox [$first getBBox]
+        if { [$bbox xMin] <= $left } { continue }
+        set level 0
+        foreach body $bodies {
+            lassign $body by0 by1
+            if { [$bbox yMin] < $by1 && [$bbox yMax] > $by0 } { set level 1 }
+        }
+        if { $level } { continue }
+        if { [llength $rows] > 1 } {
+            error "[$first getName]: the halo splits this row into more than one segment"
+        }
+        set pitch [expr {([$bbox xMax] - [$bbox xMin]) / [$first getSiteCount]}]
+        set missing [expr {[$bbox xMin] - $left}]
+        if { $pitch <= 0 || $missing % $pitch != 0 } {
+            error "[$first getName]: halo row cannot be extended to the core edge"
+        }
+        lappend pending [list $first $y [expr {$missing / $pitch}]]
+    }
+    set count 0
+    foreach item $pending {
+        lassign $item row y sites
+        odb::dbRow_create $block "v3_halo_[$row getName]" [$row getSite] \
+            $left $y [$row getOrient] [$row getDirection] $sites [$row getSpacing]
+        incr count
+    }
+    puts "\[INFO\] Restored $count halo rows for the power generator."
+}
+
+proc v3_remove_halo_rows {} {
+    set block [ord::get_db_block]
+    set count 0
+    foreach row [$block getRows] {
+        if { [string match "v3_halo_*" [$row getName]] } {
+            odb::dbRow_destroy $row
+            incr count
+        }
+    }
+    puts "\[INFO\] Removed $count temporary halo rows."
+}
+
 rename pdngen v3_pdngen
 proc pdngen {args} {
+    v3_restore_halo_rows
     v3_pdngen {*}$args
     v3_bridge_macro_columns
+    v3_remove_halo_rows
 }

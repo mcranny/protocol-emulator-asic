@@ -9,6 +9,7 @@
   },
   "//": "Only export pin area in LEF (without any connected nets)",
   "PL_TARGET_DENSITY_PCT": 60,
+  "PL_TIMING_DRIVEN": true,
   "CLOCK_PERIOD": 20.833,
   "MAX_TRANSITION_CONSTRAINT": 1.5,
   "PNR_CORNERS": [
@@ -20,19 +21,19 @@
     "nom_*": {
       "Metal1": {
         "res": 0.00084375,
-        "cap": 6.8784e-05
+        "cap": 8.8731e-05
       },
       "Metal2": {
         "res": 0.000515,
-        "cap": 9.302e-05
+        "cap": 1.19996e-04
       },
       "Metal3": {
         "res": 0.000515,
-        "cap": 9.2e-05
+        "cap": 1.18680e-04
       },
       "Metal4": {
         "res": 0.000515,
-        "cap": 9.1788e-05
+        "cap": 1.18407e-04
       }
     }
   },
@@ -65,18 +66,21 @@
   ],
   "PL_RESIZER_HOLD_SLACK_MARGIN": 0.1,
   "GRT_RESIZER_HOLD_SLACK_MARGIN": 0.1,
+  "PL_RESIZER_SETUP_SLACK_MARGIN": 2.0,
+  "GRT_RESIZER_SETUP_SLACK_MARGIN": 2.0,
   "RUN_LINTER": 1,
   "LINTER_INCLUDE_PDK_MODELS": 1,
   "CLOCK_PORT": "clk",
   "RUN_KLAYOUT_XOR": 0,
   "RUN_KLAYOUT_DRC": 1,
   "DESIGN_REPAIR_BUFFER_OUTPUT_PORTS": 0,
+  "DESIGN_REPAIR_MAX_WIRE_LENGTH": 190.0,
   "TOP_MARGIN_MULT": 1,
   "BOTTOM_MARGIN_MULT": 1,
   "LEFT_MARGIN_MULT": 6,
   "RIGHT_MARGIN_MULT": 6,
   "FP_SIZING": "absolute",
-  "GRT_ALLOW_CONGESTION": 1,
+  "GRT_ALLOW_CONGESTION": 0,
   "FP_IO_HLENGTH": 2,
   "FP_IO_VLENGTH": 2,
   "FP_PDN_VPITCH": 44.96,
@@ -92,10 +96,10 @@
   "PL_MAX_DISPLACEMENT_X": 1000,
   "PL_MAX_DISPLACEMENT_Y": 1000,
   "CTS_APPLY_NDR": "none",
-  "GRT_ADJUSTMENT": 0.05,
+  "GRT_ADJUSTMENT": 0.2,
   "GRT_ANTENNA_REPAIR_MARGIN": 30,
   "GRT_ANTENNA_REPAIR_ITERS": 6,
-  "DRT_ANTENNA_REPAIR_ITERS": 0,
+  "DRT_ANTENNA_REPAIR_ITERS": 1,
   "DRT_ANTENNA_REPAIR_JUMPER_ONLY": false,
   "RT_CLOCK_MAX_LAYER": "Metal4",
   "DRT_ANTENNA_REPAIR_DIODE_ONLY": true,
@@ -104,8 +108,8 @@
   "FP_PDN_VSPACING": 2.81,
   "FP_PDN_VOFFSET": 5.665,
   "PDN_CFG": "dir::pdn_cfg.tcl",
-  "FP_MACRO_HORIZONTAL_HALO": 80.0,
-  "FP_MACRO_VERTICAL_HALO": 50.0,
+  "FP_MACRO_HORIZONTAL_HALO": 20.0,
+  "FP_MACRO_VERTICAL_HALO": 10.0,
   "VERILOG_DEFINES": [
     "V3_SRAM_BLACKBOX"
   ],
@@ -132,16 +136,16 @@
         "u_progmem0.u_sram": {
           "location": [
             2.88,
-            215.46
+            15.6
           ],
           "orientation": "FS"
         },
         "u_progmem1.u_sram": {
           "location": [
-            2.88,
-            434.7
+            452.48,
+            15.6
           ],
-          "orientation": "N"
+          "orientation": "FS"
         }
       }
     }
@@ -156,60 +160,60 @@
     [
       "Metal4",
       183.98,
-      211.46,
+      11.6,
       422.21,
-      338.24
+      138.38
     ],
     [
       "Metal4",
-      183.98,
-      430.7,
-      422.21,
-      557.48
+      633.58,
+      11.6,
+      871.81,
+      138.38
     ]
   ],
   "ROUTING_OBSTRUCTIONS": [
     [
       "Metal2",
       2.88,
-      215.46,
+      15.6,
       419.52,
-      333.24
+      133.38
     ],
     [
       "Metal3",
       2.88,
-      215.46,
+      15.6,
       419.52,
-      333.24
+      133.38
     ],
     [
       "Metal4",
       2.88,
-      215.46,
+      15.6,
       419.52,
-      333.24
+      133.38
     ],
     [
       "Metal2",
-      2.88,
-      435.7,
-      419.52,
-      553.48
+      452.48,
+      15.6,
+      869.12,
+      133.38
     ],
     [
       "Metal3",
-      2.88,
-      435.7,
-      419.52,
-      553.48
+      452.48,
+      15.6,
+      869.12,
+      133.38
     ],
     [
       "Metal4",
-      2.88,
-      435.7,
-      419.52,
-      553.48
+      452.48,
+      15.6,
+      869.12,
+      133.38
     ]
   ],
   "DIODE_CELL": "sg13cmos5l_antennanp/A",
