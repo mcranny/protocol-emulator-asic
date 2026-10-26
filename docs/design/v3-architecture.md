@@ -301,14 +301,21 @@ instead repeats the full antenna repair (`OpenROAD.RepairAntennas`, appended aft
 estimate, before detailed routing locks it in.
 
 IR drop is reported on every full run. Without `VSRC_LOC_FILES` the analysis feeds the grid
-at the library voltage, and the bottom-edge run found every `VPWR` and `VGND` shape connected,
-`VDDARRAY!` included, with a worst-case drop of 0.25 mV (0.02%). Magic DRC stays off: the Tiny
-Tapeout precheck for CMOS5L runs KLayout DRC with the SG13CMOS5L deck and does not run Magic,
-and KLayout DRC runs in the flow.
+at the library voltage. The full run of this configuration reported a worst drop of 0.19 mV
+on 1.2 V. Magic DRC stays off: the Tiny Tapeout precheck for CMOS5L runs KLayout DRC with the
+SG13CMOS5L deck and does not run Magic, and KLayout DRC runs in the flow.
 
-The flow is the stock Tiny Tapeout flow, run locally from RTL. Release evidence is a fresh run:
-precheck, KLayout DRC, LVS, extracted timing and gate-level tests with the SRAM model. No V3
-run has passed it yet. No pad timing is claimed until Tiny Tapeout publishes CMOS5L pad data.
+The flow is the stock Tiny Tapeout flow, run locally from RTL. A fresh full run met the timing
+bar: zero setup, hold, slew, capacitance and fanout violations at all three corners, +2.92 ns
+slow-corner register-to-register setup, and +0.112 ns fast-corner hold. Routing DRC, antenna
+violations, KLayout DRC and LVS were all zero. The produced GDS is
+`tt_um_mcranny_protocol_emulator_v3.gds`. Tiny Tapeout precheck did not pass. Its pin check
+rejects the LEF because 40 `VGND` and 42 `VPWR` Metal4 rectangles are split around the
+bottom-edge SRAMs; 18 `VGND` and 19 `VPWR` rectangles do span the die. The three precheck
+KLayout invocations did not run on the host. The program-memory tests pass against the SRAM
+behavioral model. The chip-level gate-level suite on the routed netlist passed 2 of 15 tests;
+the other tests read hierarchy that synthesis removed, or an X on an output. No pad timing is
+claimed until Tiny Tapeout publishes CMOS5L pad data.
 
 ## Toolchain
 
