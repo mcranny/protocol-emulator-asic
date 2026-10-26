@@ -104,24 +104,42 @@ module v3_progmem (
 
     // One validity bit per word. Reset and invalidate clear it; a write sets
     // the bit for its address. Invalidate wins over a write on the same edge.
+    //
+    // fetch_valid is the bit of the last address read, held until the next
+    // read. The address is registered and looked up after the edge, alongside
+    // the macro's own access, so the lookup is not on the fetch address path.
+    // A read never shares an edge with a write, so the bitmap only moves
+    // under a held address on a later write or invalidate; the looked-up bit
+    // is latched on the first of those. A read on the same edge as
+    // invalidate reports the cleared bit; the top level never does that.
     reg [255:0] bitmap;
+    reg [7:0]   fetched_addr_r;
     reg         fetch_valid_r;
+    reg         valid_held_r;
+    wire        fetched_bit = bitmap[fetched_addr_r];
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            bitmap        <= 256'b0;
-            fetch_valid_r <= 1'b0;
+            bitmap         <= 256'b0;
+            fetched_addr_r <= 8'b0;
+            fetch_valid_r  <= 1'b0;
+            valid_held_r   <= 1'b0;
         end else begin
             if (invalidate)
                 bitmap <= 256'b0;
             else if (write_en)
                 bitmap <= bitmap | (256'b1 << write_addr);
-            if (a_ren)
-                fetch_valid_r <= bitmap[fetch_addr];
+            if (a_ren) begin
+                fetched_addr_r <= fetch_addr;
+                valid_held_r   <= 1'b0;
+            end else if ((write_en || invalidate) && !valid_held_r) begin
+                fetch_valid_r  <= fetched_bit;
+                valid_held_r   <= 1'b1;
+            end
         end
     end
 
-    assign fetch_valid    = fetch_valid_r;
+    assign fetch_valid    = valid_held_r ? fetch_valid_r : fetched_bit;
     assign image_complete = &bitmap;
 
 `ifdef FORMAL
@@ -166,6 +184,29 @@ module v3_progmem (
         end
         if (past_valid && !$past(rst_n) && !rst_n)
             assert(bitmap == 256'b0);
+    end
+
+    // Reference: fetch_valid is the bitmap bit of the address on the last
+    // read edge, as it stood before that edge, held until the next read. The
+    // one exception is a read on the same edge as invalidate.
+    reg f_ref_valid, f_ref_exact;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            f_ref_valid <= 1'b0;
+            f_ref_exact <= 1'b1;
+        end else if (a_ren) begin
+            f_ref_valid <= bitmap[fetch_addr];
+            f_ref_exact <= !invalidate;
+        end
+    end
+    always @* begin
+        if (past_valid && rst_n && f_ref_exact) begin
+            assert(fetch_valid == f_ref_valid);
+            // Strengthening for induction: the reference is the live lookup
+            // until the bitmap moves, then the latched bit.
+            if (valid_held_r) assert(fetch_valid_r == f_ref_valid);
+            else              assert(fetched_bit == f_ref_valid);
+        end
     end
 
 `ifndef V3_PROGMEM_MACRO

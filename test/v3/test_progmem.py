@@ -72,6 +72,33 @@ async def test_v3_progmem_fetching_an_unwritten_word_is_not_valid(dut):
 
 
 @cocotb.test()
+async def test_v3_progmem_fetch_valid_holds_until_the_next_read(dut):
+    await reset(dut)
+    await write(dut, 5, 0)
+    dut.fetch_en.value = 1
+    dut.fetch_addr.value = 5
+    await RisingEdge(dut.clk)
+    dut.fetch_en.value = 0
+    await RisingEdge(dut.clk)
+    assert int(dut.fetch_valid.value) == 1
+    dut.invalidate.value = 1
+    await RisingEdge(dut.clk)
+    dut.invalidate.value = 0
+    await RisingEdge(dut.clk)
+    assert int(dut.fetch_valid.value) == 1
+    await write(dut, 7, 0)
+    await RisingEdge(dut.clk)
+    assert int(dut.fetch_valid.value) == 1
+    dut.fetch_en.value = 1
+    dut.fetch_addr.value = 9
+    await RisingEdge(dut.clk)
+    dut.fetch_en.value = 0
+    await write(dut, 9, 0)
+    await RisingEdge(dut.clk)
+    assert int(dut.fetch_valid.value) == 0
+
+
+@cocotb.test()
 async def test_v3_progmem_invalidate_clears_the_bitmap(dut):
     await reset(dut)
     for addr in range(256):

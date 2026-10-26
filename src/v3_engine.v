@@ -335,19 +335,23 @@ module v3_engine (
     wire _unused_eng = &{1'b0, open_drain, taken_branch, ret_empty, f_active};
 
     // -- external output strobes ----------------------------------------
-    assign commit        = (retire && is_commit) ? ctarget : 8'b0;
+    // Each strobe is `retire` for its own op, written with only that op's
+    // stall and fault conditions: a commit faults on ownership and stalls on
+    // a busy slot, PULL stalls on an empty queue (PULLNB never stalls), RX
+    // faults on a full queue, a CRC op stalls only on the grant, and CLEARMISS
+    // neither stalls nor faults. This keeps every other opcode's stall and
+    // fault logic off the strobes, and the other engine's CRC grant depends on
+    // them within the same cycle.
+    assign commit        = (exec_valid && is_commit && !commit_fault && !commit_stall)
+                           ? ctarget : 8'b0;
     assign commit_value  = cval;
     assign commit_oe     = coe;
     assign commit_due    = commit_due_w;
-    assign tx_pull       = retire && ((op == `OP_PULL) ||
-                                      (op == `OP_PULLNB && tx_level != 5'd0));
-    assign rx_push       = retire && (op == `OP_RX);
+    assign tx_pull       = exec_valid && (op == `OP_PULL || op == `OP_PULLNB) &&
+                           (tx_level != 5'd0);
+    assign rx_push       = exec_valid && (op == `OP_RX) && (rx_level != 5'd16);
     assign rx_value      = isr_r;
     assign rx_meta       = f_rx_meta;
-    // A CRC op never faults and stalls only on the grant, so `retire` reduces
-    // to `exec_valid && crc_grant` here. Writing it out keeps the other
-    // opcodes' stall and fault logic off the strobes, which the other engine's
-    // grant depends on within the same cycle.
     assign crc_cfg       = exec_valid && crc_grant && (op == `OP_CRCCFG);
     assign crc_poly      = f_crc_poly;
     assign crc_msb_first = f_crc_msb;
@@ -355,7 +359,7 @@ module v3_engine (
     assign crc_seed      = regfile[f_reg][15:0];
     assign crc_bit       = exec_valid && crc_grant && (op == `OP_CRCBIT);
     assign crc_bit_value = regfile[f_reg][0];
-    assign clear_missed  = (retire && op == `OP_CLEARMISS) ? (f_cm_mask & owner) : 8'b0;
+    assign clear_missed  = (exec_valid && op == `OP_CLEARMISS) ? (f_cm_mask & owner) : 8'b0;
 
     // -- prefetch address (registered read one cycle late) --------------
     assign fetch_addr =
@@ -571,11 +575,17 @@ module v3_engine (
                 assert (do_stall);
                 assert (!crc_cfg && !crc_load && !crc_bit);
             end
-            // Each CRC strobe is exactly its op retiring, so the strobes never
-            // need the other opcodes' stall and fault logic.
+            // Each external strobe is exactly its op retiring, so the strobes
+            // never need the other opcodes' stall and fault logic.
             assert (crc_cfg  == (retire && op == `OP_CRCCFG));
             assert (crc_load == (retire && op == `OP_CRCLOAD));
             assert (crc_bit  == (retire && op == `OP_CRCBIT));
+            assert (commit == ((retire && is_commit) ? ctarget : 8'b0));
+            assert (tx_pull == (retire && ((op == `OP_PULL) ||
+                                           (op == `OP_PULLNB && tx_level != 5'd0))));
+            assert (rx_push == (retire && op == `OP_RX));
+            assert (clear_missed == ((retire && op == `OP_CLEARMISS) ?
+                                     (f_cm_mask & owner) : 8'b0));
         end
 
         if (f_past_valid && rst_n && f_rstn_prev) begin

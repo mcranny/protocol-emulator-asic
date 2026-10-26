@@ -828,6 +828,14 @@ module tt_um_mcranny_protocol_emulator_v3 (
     // stopped.
     always @* if (filter_write_en) assert (both_stopped);
 
+    // Property 7: a program fetch never shares an edge with a CLEAR of the
+    // same image, the one case where v3_progmem's fetch_valid is not the
+    // registered lookup.
+    always @* begin
+        if (clear0_en) assert (!pm0_fetch_en);
+        if (clear1_en) assert (!pm1_fetch_en);
+    end
+
     // Property 3: !ena or !rst_n releases every output enable.
     always @* if (!ena || !rst_n) assert (uio_oe == 8'b0);
 `endif

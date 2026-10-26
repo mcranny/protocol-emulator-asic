@@ -3,7 +3,10 @@
 # Assumptions: Initial sampled reset; arbitrary subsequent inputs.
 # Properties: Macro tie-offs and A_MEN, read data at N+1 matches the word
 #   written to an arbitrary address, image_complete iff all 256 bitmap bits
-#   are set, a write sets exactly one bit, invalidate clears all bits.
+#   are set, a write sets exactly one bit, invalidate clears all bits, and
+#   fetch_valid equals the bitmap bit of the last read address as it stood
+#   before that read, held until the next read, except after a read on the
+#   same edge as invalidate.
 # Method: temporal induction; bounded success alone is insufficient.
 # Scope and abstractions: formal/README.md. Proves the inferred register-file
 #   model; the macro itself is covered by the FUNCTIONAL simulation run.

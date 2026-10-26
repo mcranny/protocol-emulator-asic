@@ -18,6 +18,7 @@
 #      cycle, and a rejected START (all-or-nothing) strobes neither engine.
 #   5. A program write is refused while the target engine is running.
 #   6. The input-filter mask is written only while both engines are stopped.
+#   7. A program fetch never shares an edge with a CLEAR of the same image.
 #
 # Method: temporal induction over the integrated wiring with the black-box
 # outputs free and the pin-cell release contract assumed. The properties are

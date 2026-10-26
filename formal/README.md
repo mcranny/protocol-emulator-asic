@@ -22,7 +22,10 @@ input low, all byte-mask bits set), `A_MEN` equal to `fetch_en | write_en` and
 low when neither is asserted, no read and write overlap on the single port, data
 at N+1 equal to the word last written to an arbitrary constant address,
 `image_complete` equal to all 256 bitmap bits set, a write setting exactly one
-bitmap bit, and `invalidate` clearing all of them. The proof does not cover the
+bitmap bit, `invalidate` clearing all of them, and `fetch_valid` equal to the
+bitmap bit of the last read address as it stood before that read, held until
+the next read. A read on the same edge as `invalidate` is the one exception;
+F-V3-INTEGRATION proves the top level never issues one. The proof does not cover the
 hard macro; the same cocotb tests run against the PDK behavioral model with
 `DEFINES=-DFUNCTIONAL` and check its one-cycle registered read.
 
