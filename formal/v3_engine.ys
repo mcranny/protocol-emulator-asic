@@ -6,7 +6,8 @@
 # Properties: Return-stack depth bound, commits only strobe owned pins, the
 #   external queue levels are never over/underflowed, a bubble cycle has no
 #   side effects, errors are sticky, a taken branch costs exactly two cycles,
-#   and RET on an empty stack faults and halts.
+#   RET on an empty stack faults and halts, and each CRC strobe equals its op
+#   retiring.
 # Method: temporal induction.
 # Scope and abstractions: formal/README.md.
 

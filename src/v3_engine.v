@@ -344,12 +344,16 @@ module v3_engine (
     assign rx_push       = retire && (op == `OP_RX);
     assign rx_value      = isr_r;
     assign rx_meta       = f_rx_meta;
-    assign crc_cfg       = retire && (op == `OP_CRCCFG);
+    // A CRC op never faults and stalls only on the grant, so `retire` reduces
+    // to `exec_valid && crc_grant` here. Writing it out keeps the other
+    // opcodes' stall and fault logic off the strobes, which the other engine's
+    // grant depends on within the same cycle.
+    assign crc_cfg       = exec_valid && crc_grant && (op == `OP_CRCCFG);
     assign crc_poly      = f_crc_poly;
     assign crc_msb_first = f_crc_msb;
-    assign crc_load      = retire && (op == `OP_CRCLOAD);
+    assign crc_load      = exec_valid && crc_grant && (op == `OP_CRCLOAD);
     assign crc_seed      = regfile[f_reg][15:0];
-    assign crc_bit       = retire && (op == `OP_CRCBIT);
+    assign crc_bit       = exec_valid && crc_grant && (op == `OP_CRCBIT);
     assign crc_bit_value = regfile[f_reg][0];
     assign clear_missed  = (retire && op == `OP_CLEARMISS) ? (f_cm_mask & owner) : 8'b0;
 
@@ -567,6 +571,11 @@ module v3_engine (
                 assert (do_stall);
                 assert (!crc_cfg && !crc_load && !crc_bit);
             end
+            // Each CRC strobe is exactly its op retiring, so the strobes never
+            // need the other opcodes' stall and fault logic.
+            assert (crc_cfg  == (retire && op == `OP_CRCCFG));
+            assert (crc_load == (retire && op == `OP_CRCLOAD));
+            assert (crc_bit  == (retire && op == `OP_CRCBIT));
         end
 
         if (f_past_valid && rst_n && f_rstn_prev) begin
