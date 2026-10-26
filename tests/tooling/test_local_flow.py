@@ -280,6 +280,7 @@ def test_inside_merges_the_v3_config_next_to_it_at_48_mhz(make_v3_project, tmp_p
     calls = _stage_inside(tmp_path, monkeypatch, make_v3_project(), {"8x4": V3_DIE}, {
         "physical/v3/config.json": '{"CLOCK_PERIOD": 20.833, "PDN_CFG": "dir::pdn_cfg.tcl"}',
         "physical/v3/pdn_cfg.tcl": "# pdn",
+        "physical/v3/remove_sram_clock_delay.py": "# delay",
     })
     assert flow.inside("full", 6) == 0
     config = json.loads((tmp_path / "physical/v3/config_merged.json").read_text())
@@ -301,6 +302,7 @@ def test_inside_stops_shortened_stages(make_v3_project, tmp_path, monkeypatch, s
     calls = _stage_inside(tmp_path, monkeypatch, make_v3_project(), {"8x4": V3_DIE}, {
         "physical/v3/config.json": '{"CLOCK_PERIOD": 20.833}',
         "physical/v3/pdn_cfg.tcl": "# pdn",
+        "physical/v3/remove_sram_clock_delay.py": "# delay",
     })
     assert flow.inside(stage, 4) == 0
     assert calls[0][calls[0].index("--to") + 1] == last_step
@@ -384,9 +386,31 @@ def test_run_librelane_repairs_the_netgen_report_before_the_flow_runs(monkeypatc
     steps = types.ModuleType("librelane.steps")
     netgen = types.ModuleType("librelane.steps.netgen")
     netgen.json = json
+    odb = types.ModuleType("librelane.steps.odb")
+
+    class OdbpyStep:
+        pass
+
+    odb.OdbpyStep = OdbpyStep
+    stepmod = types.ModuleType("librelane.steps.step")
+    registered = []
+
+    class Factory:
+        def register(self):
+            def deco(cls):
+                registered.append(cls)
+                return cls
+            return deco
+
+    class Step:
+        factory = Factory()
+
+    stepmod.Step = Step
     steps.netgen = netgen
+    steps.odb = odb
+    steps.step = stepmod
     package.steps = steps
-    for module in (package, steps, netgen):
+    for module in (package, steps, netgen, odb, stepmod):
         monkeypatch.setitem(sys.modules, module.__name__, module)
     monkeypatch.setattr(sys, "argv", list(sys.argv))
     seen = {}
@@ -406,6 +430,14 @@ def test_run_librelane_repairs_the_netgen_report_before_the_flow_runs(monkeypatc
         "dumps": '{"a": 1}',
     }
     assert netgen.json.JSONDecodeError is json.JSONDecodeError
+    assert [cls.id for cls in registered] == [flow.SRAM_CLOCK_DELAY_STEP]
+    assert registered[0].get_script_path(None) == flow.SRAM_CLOCK_DELAY_SCRIPT
+
+
+def test_v3_copies_the_sram_clock_delay_script_with_its_config():
+    companions = flow.PROFILES["v3"]["companions"]
+    assert "physical/v3/remove_sram_clock_delay.py" in companions
+    assert flow.SRAM_CLOCK_DELAY_SCRIPT.endswith("physical/v3/remove_sram_clock_delay.py")
 
 
 def test_evidence_keys_use_posix_separators():

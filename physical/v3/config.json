@@ -4,7 +4,9 @@
     "flow": "Classic",
     "substituting_steps": {
       "+OpenROAD.RepairAntennas": "OpenROAD.RepairDesignPostGRT",
-      "+OpenROAD.GlobalRouting": "Odb.InsertECODiodes"
+      "+OpenROAD.GlobalRouting": "Odb.InsertECODiodes",
+      "+OpenROAD.CTS": "Odb.RemoveSramClockDelay",
+      "+OpenROAD.ResizerTimingPostGRT": "OpenROAD.RepairAntennas"
     }
   },
   "//": "Only export pin area in LEF (without any connected nets)",
@@ -97,6 +99,7 @@
   "PL_MAX_DISPLACEMENT_Y": 1000,
   "CTS_APPLY_NDR": "none",
   "GRT_ADJUSTMENT": 0.2,
+  "GRT_LAYER_ADJUSTMENTS": [0, 0, 0.25, 0, 0],
   "GRT_ANTENNA_REPAIR_MARGIN": 30,
   "GRT_ANTENNA_REPAIR_ITERS": 6,
   "DRT_ANTENNA_REPAIR_ITERS": 1,

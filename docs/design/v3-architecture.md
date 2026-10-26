@@ -207,6 +207,17 @@ and may not finish with congestion, so an overflow stops the flow at that step. 
 overflowed, and at 0.15 the slow-corner setup slack after global routing fell to 0.20 ns,
 against 0.31 to 0.87 ns in two runs at 0.2.
 
+Metal3 is the only horizontal signal layer (Metal2 and Metal4 are vertical), and global routing
+fills it to 58% overall and to its limit in the logic above the second SRAM. There, at the global
+0.2, detailed routing could not follow the global route and sent 9 to 15 short horizontal nets
+300 to 900 µm out of their way. No repair step sees a detour that only detailed routing makes,
+so whichever weak drivers landed on those nets broke the slew limit: two standard-cell nets in
+one run, and `u_progmem1.u_sram/A_DIN[11]`, whose own pin limit is 0.5952 ns at the slow
+corner, in the next. `GRT_LAYER_ADJUSTMENTS` therefore plans Metal3 at 0.25 (the entries follow
+the routing layers from Metal1, and a 0 entry leaves that layer at the global value). From the
+same placement, global routing still finished with no overflow at 0.25; it overflowed at 0.28.
+Whether 0.25 is enough to stop the detours is measured only by a routed run.
+
 `DESIGN_REPAIR_MAX_WIRE_LENGTH` is 190 µm. Left at its 0 (disabled) default, repair only buffers
 a net for slew or capacitance, not for length on its own, and one SRAM output had no load
 anywhere nearby: `u_progmem1.u_sram/A_DOUT[3]` drove straight to its first standard-cell load
@@ -242,7 +253,10 @@ inserting 4444 buffers. The cap stays.
 
 With the calibrated values, slow-corner register-to-register slack was −0.28 ns before routing and
 −2.43 ns extracted, on 52 paths that all launch from an SRAM output. No timing repair runs after
-detailed routing, so the setup repair after clock-tree synthesis and after global routing
+detailed routing. An extra slew-repair pass just before detailed routing was tried and
+removed: it runs after the last timing repair, and it took fast-corner hold from +0.116 ns to
++0.081 ns with nothing afterwards to restore it. The setup repair after clock-tree synthesis
+and after global routing
 (`PL_RESIZER_SETUP_SLACK_MARGIN`, `GRT_RESIZER_SETUP_SLACK_MARGIN`) aims at 2.0 ns, the signoff
 margin, instead of the 0.05 and 0.025 ns defaults. In a preliminary run that took the pre-route
 slack to +1.79 ns, mostly by upsizing about 280 cells; it added 22 cells.
@@ -252,12 +266,16 @@ wandered about 5,600 µm across the die. With it, at the same margins, slow-corn
 rose to +2.18 ns. The cost is placement time, 11 minutes 40 seconds against about 1 minute 20
 seconds before, and 9.9% more cell area from the repair it runs during placement.
 
-Clock-tree synthesis balances the macro clock against the register tree by putting 13 delay
-buffers, 1.55 ns at the slow corner, in front of both SRAM `A_CLK` pins and nowhere else. That
-delay comes straight out of every failing path, while the register-to-SRAM paths it protects
-have more than 15 ns of setup slack. `CTS_DELAY_BUFFER_DERATE_PCT` does not remove it: at 0, 1
-and 0.5 the flow passes `-delay_buffer_derate` through and OpenROAD still inserts all 13, and no
-other clock-tree variable in this LibreLane version reaches the latency-balancing stage.
+Clock-tree synthesis balances the macro clock against the register tree by inserting a chain of
+delay buffers in front of both SRAM `A_CLK` pins and nowhere else: 14 buffers, 1.41 ns at the
+slow corner, in the run that measured them. The flow removes that chain after clock-tree
+synthesis and before hold repair (`Odb.RemoveSramClockDelay`, appended after `OpenROAD.CTS` in
+`physical/v3/remove_sram_clock_delay.py`) and reconnects the SRAM clock subtree to the net that
+drove the chain. Every SRAM-launched path was paying that delay, and hold repair was then
+padding the short register-to-SRAM paths, which otherwise have more than 15 ns of setup slack.
+`CTS_DELAY_BUFFER_DERATE_PCT` does not stop the insertion: at 0, 1 and 0.5 the flow passes
+`-delay_buffer_derate` through and OpenROAD still inserts the chain, and no other clock-tree
+variable in this LibreLane version reaches the latency-balancing stage.
 
 The halo cuts the placement rows just above and below each macro, and the power generator will
 not strap a supply stripe across a gap with no row, which leaves the SRAM `VDD!` pins
@@ -270,6 +288,17 @@ runs, but the routed result still had 12 Metal3 antenna violations, the worst at
 limit. Detailed routing's own antenna-repair loop (`DRT_ANTENNA_REPAIR_ITERS`) therefore gets
 one diode-only pass. Each pass re-runs detailed routing, and on a congested earlier floorplan a
 longer loop re-ran a full 64-iteration route and nearly doubled the marker count.
+
+`OpenROAD.ResizerTimingPostGRT`, which runs after that antenna repair, creates its own new nets
+(buffer outputs) while fixing setup and slew. One such net came out of a routed run at 1.21 times
+its Metal2 ratio, and detailed routing's diode-only loop is the only thing left that sees it: by
+then the route is already committed, so the loop can only bolt a diode onto it. Trying a second
+diode-only pass there made it worse, not better (1.21x to 1.50x), because reaching the new diode's
+placement added about a third more Metal2 wire to the net than the diode protected. The flow
+instead repeats the full antenna repair (`OpenROAD.RepairAntennas`, appended after
+`OpenROAD.ResizerTimingPostGRT`) so this net is caught with its full repair budget
+(`GRT_ANTENNA_REPAIR_ITERS`, margin `GRT_ANTENNA_REPAIR_MARGIN`) while the route is still an
+estimate, before detailed routing locks it in.
 
 IR drop is reported on every full run. Without `VSRC_LOC_FILES` the analysis feeds the grid
 at the library voltage, and the bottom-edge run found every `VPWR` and `VGND` shape connected,

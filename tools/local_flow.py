@@ -45,8 +45,14 @@ V3_TOP = "tt_um_mcranny_protocol_emulator_v3"
 PROFILES = {
     "v1": {"config": "src/config.json", "period": 40, "root": "dir::", "companions": ()},
     "v3": {"config": "physical/v3/config.json", "period": 20.833, "root": "dir::../../",
-           "companions": ("physical/v3/pdn_cfg.tcl",)},
+           "companions": ("physical/v3/pdn_cfg.tcl",
+                          "physical/v3/remove_sram_clock_delay.py")},
 }
+
+# Appended after OpenROAD.CTS. The container mounts the run at /work, and this
+# file is copied there with the other V3 companions.
+SRAM_CLOCK_DELAY_STEP = "Odb.RemoveSramClockDelay"
+SRAM_CLOCK_DELAY_SCRIPT = "/work/physical/v3/remove_sram_clock_delay.py"
 
 
 def profile_name(project):
@@ -146,6 +152,16 @@ def run_librelane(arguments):
     from types import SimpleNamespace
 
     from librelane.steps import netgen
+    from librelane.steps.odb import OdbpyStep
+    from librelane.steps.step import Step
+
+    @Step.factory.register()
+    class RemoveSramClockDelay(OdbpyStep):
+        id = SRAM_CLOCK_DELAY_STEP
+        name = "Remove SRAM clock delay buffers"
+
+        def get_script_path(self):
+            return SRAM_CLOCK_DELAY_SCRIPT
 
     netgen.json = SimpleNamespace(**{
         **{name: getattr(json, name) for name in json.__all__},

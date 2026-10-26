@@ -3,6 +3,8 @@ import math
 import re
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 CONFIG = json.loads((ROOT / "physical/v3/config.json").read_text())
 SRAM = "RM_IHPSG13_1P_256x32_c2_bm_bist"
@@ -162,6 +164,13 @@ def test_global_routing_must_not_overflow_into_the_macros():
     # With the macros on the bottom edge, 0.3 overflowed and 0.15 cut the
     # slow-corner setup slack to 0.20 ns; two runs at 0.2 kept 0.31 to 0.87 ns.
     assert CONFIG["GRT_ADJUSTMENT"] == 0.2
+    # Metal3 is the only horizontal signal layer. At the global 0.2, detailed
+    # routing detoured 9 to 15 short horizontal nets above the second SRAM by
+    # 300 to 900 um, out of sight of every repair step. Planning Metal3 at
+    # 0.25 still routes with no overflow from the same placement; 0.28 does
+    # not. The entries follow the routing layers from Metal1, and a 0 entry
+    # leaves that layer at the global value.
+    assert CONFIG["GRT_LAYER_ADJUSTMENTS"] == [0, 0, 0.25, 0, 0]
 
 
 def stripes():
@@ -239,11 +248,29 @@ def test_no_preplaced_diodes_and_power_obstructions_stay_by_the_macros():
     # antenna violations, so it gets exactly one diode-only repair pass of its
     # own. Each pass re-runs detailed routing, and on a congested earlier
     # floorplan a longer loop re-ran a full 64-iteration route and nearly
-    # doubled the marker count.
+    # doubled the marker count. A second diode-only pass was tried for a net
+    # the first antenna repair never sees (see below) and made that net's
+    # Metal2 ratio worse, 1.21x to 1.50x: the new diode's own route added
+    # about a third more Metal2 wire than it protected.
     assert CONFIG["GRT_ANTENNA_REPAIR_ITERS"] >= 1
     assert CONFIG["DRT_ANTENNA_REPAIR_ITERS"] == 1
     assert CONFIG["DRT_ANTENNA_REPAIR_DIODE_ONLY"] is True
     assert CONFIG["meta"]["substituting_steps"]["+OpenROAD.GlobalRouting"] == "Odb.InsertECODiodes"
+    # CTS inserts a delay chain in front of both SRAM clocks. Removing it after
+    # CTS lets the post-CTS hold repair see the earlier clock arrival.
+    assert CONFIG["meta"]["substituting_steps"]["+OpenROAD.CTS"] == "Odb.RemoveSramClockDelay"
+    # A repair pass placed after the last timing repair costs hold that
+    # nothing restores; one before detailed routing took fast-corner hold
+    # from +0.116 to +0.081 ns.
+    assert "-OpenROAD.DetailedRouting" not in CONFIG["meta"]["substituting_steps"]
+    # The post-GRT resizer pass creates nets (e.g. new buffer outputs) that
+    # the antenna repair before it never sees. Left alone, one such net only
+    # reaches detailed routing's diode-only loop, which can only bolt a diode
+    # onto an already-committed route; one routed run left it at 1.21x its
+    # Metal2 ratio. Repeating the full antenna repair after the resizer pass
+    # catches that net while the route is still flexible.
+    assert CONFIG["meta"]["substituting_steps"]["+OpenROAD.ResizerTimingPostGRT"] == (
+        "OpenROAD.RepairAntennas")
     # One obstruction per macro, over its off-phase half, ending 4 um above
     # and below it so the in-phase stripes still reach both ends of the columns.
     obstructions = sorted(CONFIG["PDN_OBSTRUCTIONS"], key=lambda o: o[1])
@@ -253,3 +280,118 @@ def test_no_preplaced_diodes_and_power_obstructions_stay_by_the_macros():
         assert layer == "Metal4"
         assert mx0 + MACRO_W / 2 - 30 < ox0 < mx1 < ox1 < mx1 + 4
         assert close(my0 - oy0, 4) and close(oy1 - my1, 4)
+
+
+def _load_delay_script():
+    import importlib.util
+
+    path = ROOT / "physical/v3/remove_sram_clock_delay.py"
+    spec = importlib.util.spec_from_file_location("remove_sram_clock_delay", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class _Net:
+    def __init__(self, name):
+        self.name = name
+        self.terms = []
+        self.ports = []
+
+    def getITerms(self):
+        return list(self.terms)
+
+    def getBTerms(self):
+        return list(self.ports)
+
+    def getName(self):
+        return self.name
+
+
+class _Term:
+    def __init__(self, inst, net):
+        self.inst = inst
+        self.net = net
+        net.terms.append(self)
+
+    def getInst(self):
+        return self.inst
+
+    def getNet(self):
+        return self.net
+
+    def disconnect(self):
+        self.net.terms.remove(self)
+        self.net = None
+
+    def connect(self, net):
+        self.net = net
+        net.terms.append(self)
+
+
+class _Inst:
+    def __init__(self, name):
+        self.name = name
+        self.terms = {}
+
+    def getName(self):
+        return self.name
+
+    def findITerm(self, pin):
+        return self.terms.get(pin)
+
+
+class _Block:
+    def __init__(self):
+        self.insts = {}
+
+    def findInst(self, name):
+        return self.insts.get(name)
+
+
+def _chain(length, loads):
+    """A delaybuf_0.. chain driven by ``clk``, ending in the named loads."""
+    block = _Block()
+    clk = _Net("clk")
+    previous = None
+    for index in range(length):
+        inst = _Inst(f"delaybuf_{index}_clk")
+        block.insts[inst.name] = inst
+        incoming = clk if previous is None else previous
+        inst.terms["A"] = _Term(inst, incoming)
+        previous = _Net(f"delaynet_{index}_clk")
+        inst.terms["X"] = _Term(inst, previous)
+    for name in loads:
+        inst = _Inst(name)
+        block.insts[name] = inst
+        inst.terms["A"] = _Term(inst, previous)
+    return block
+
+
+def test_sram_clock_delay_removal_reconnects_the_subtree():
+    module = _load_delay_script()
+    block = _chain(3, ["clkbuf_0_clk", "clkload_0"])
+    removed_insts, removed_nets = [], []
+    assert module.remove_sram_clock_delay(
+        block, removed_insts.append, removed_nets.append) == 3
+    clk = block.findInst("clkbuf_0_clk").findITerm("A").getNet()
+    assert clk.getName() == "clk"
+    assert block.findInst("clkload_0").findITerm("A").getNet() is clk
+    assert [inst.getName() for inst in removed_insts] == [
+        "delaybuf_0_clk", "delaybuf_1_clk", "delaybuf_2_clk"]
+    assert [net.getName() for net in removed_nets] == [
+        "delaynet_0_clk", "delaynet_1_clk", "delaynet_2_clk"]
+
+
+def test_sram_clock_delay_removal_rejects_a_broken_chain():
+    module = _load_delay_script()
+    with pytest.raises(RuntimeError, match="no delaybuf"):
+        module.remove_sram_clock_delay(_Block(), lambda inst: None, lambda net: None)
+    branched = _chain(2, ["clkbuf_0_clk"])
+    extra = _Inst("other")
+    _Term(extra, branched.findInst("delaybuf_0_clk").findITerm("X").getNet())
+    with pytest.raises(RuntimeError, match="does not drive only"):
+        module.remove_sram_clock_delay(branched, lambda inst: None, lambda net: None)
+    gapped = _chain(2, ["delaybuf_9_clk"])
+    with pytest.raises(RuntimeError, match="not contiguous"):
+        module.remove_sram_clock_delay(gapped, lambda inst: None, lambda net: None)
