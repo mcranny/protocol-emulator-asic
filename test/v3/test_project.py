@@ -57,6 +57,11 @@ GUARD = 4
 #: System clocks CS_n is held high between frames (the RTL needs at least four).
 IDLE = 6
 
+#: Set by the gate-level run. A synthesized netlist keeps only the chip's
+#: ports, so checks of internal state run against the RTL alone; everything
+#: observed at the pins runs in both.
+GATE_LEVEL = os.environ.get("GATES") == "yes"
+
 #: Comparison length after both engines start. Override for quick runs.
 COMPARE_CYCLES = int(os.environ.get("V3_COMPARE_CYCLES", "200000"))
 
@@ -117,6 +122,25 @@ class Chip:
 
     def __init__(self, dut):
         self.dut = dut
+        self.cycles = 0
+
+    async def _count(self) -> None:
+        while True:
+            await RisingEdge(self.dut.clk)
+            self.cycles += 1
+
+    def now(self) -> int:
+        """The timebase value, from the clocks counted since reset released.
+
+        The timebase clears in reset and advances once per clock, so this
+        needs no internal signal. Against the RTL it is also checked against
+        the counter itself.
+        """
+        value = self.cycles & TIMEBASE_MASK
+        if not GATE_LEVEL:
+            internal = int(self.dut.u_timebase.now.value)
+            assert internal == value, f"timebase {internal} != {value} clocks since reset"
+        return value
 
     def _drive_spi(self, sck: int, cs_n: int, mosi: int) -> None:
         """Present the three SPI inputs on ui_in, holding the rest low."""
@@ -136,6 +160,8 @@ class Chip:
         for _ in range(4):
             await FallingEdge(dut.clk)
         dut.rst_n.value = 1
+        self.cycles = 0
+        cocotb.start_soon(self._count())
         await FallingEdge(dut.clk)
 
     async def frame(self, value: int, finish: bool = True) -> int:
@@ -224,7 +250,7 @@ async def test_v3_full_chip_differential(dut):
         status = int(dut.uo_out.value)
         if (status >> 1) & 1:
             assert (status >> 2) & 1, "the two engines did not start on one cycle"
-            now_post = int(dut.u_timebase.now.value)
+            now_post = chip.now()
             break
     assert now_post is not None, "the engines never started after START"
 
@@ -269,7 +295,7 @@ async def test_v3_full_chip_differential(dut):
         await ReadOnly()
         # The timebase must advance exactly one tick per clock, confirming the
         # model stayed aligned with the DUT's internal counter.
-        dut_now = int(dut.u_timebase.now.value)
+        dut_now = chip.now()
         assert dut_now == (model_now + 1) & TIMEBASE_MASK, (
             f"cycle {cycle}: timebase diverged, dut now={dut_now} "
             f"model now+1={(model_now + 1) & TIMEBASE_MASK}"
@@ -362,13 +388,14 @@ async def _run_setup(chip, requests):
         _check_reply(index - 1, requests[index - 1], miso)
 
 
-async def _await_engine0(dut):
+async def _await_engine0(chip):
     """Return the timebase value at the first cycle engine 0 reports running."""
+    dut = chip.dut
     for _ in range(64):
         await RisingEdge(dut.clk)
         await ReadOnly()
         if (int(dut.uo_out.value) >> 1) & 1:
-            return int(dut.u_timebase.now.value)
+            return chip.now()
     raise AssertionError("engine 0 never started after START")
 
 
@@ -381,7 +408,7 @@ async def test_v3_txpush_feeds_pull_matching_the_model(dut):
 
     await _run_setup(chip, _build_tx_requests(image0, TX_BYTES))
     assert int(dut.uio_oe.value) == 0, "a pin was driven before START"
-    now_post = await _await_engine0(dut)
+    now_post = await _await_engine0(chip)
 
     start_now = (now_post - 1) & TIMEBASE_MASK
     model_now = now_post
@@ -415,7 +442,7 @@ async def test_v3_txpush_feeds_pull_matching_the_model(dut):
             cell.tick(model_now)
 
         await ReadOnly()
-        dut_now = int(dut.u_timebase.now.value)
+        dut_now = chip.now()
         assert dut_now == (model_now + 1) & TIMEBASE_MASK, (
             f"cycle {cycle}: timebase diverged"
         )
@@ -622,7 +649,7 @@ async def test_v3_open_drain_preserves_latched_state_across_set_and_oe(dut):
         status = int(dut.uo_out.value)
         if (status >> 1) & 1:
             assert not (status >> 2) & 1, "engine 1 started from a 0b01 START"
-            now_post = int(dut.u_timebase.now.value)
+            now_post = chip.now()
             break
     assert now_post is not None, "engine 0 never started"
 
@@ -810,7 +837,7 @@ async def test_v3_shared_crc_collision_stalls_the_losing_engine(dut):
         status = int(dut.uo_out.value)
         if (status >> 1) & 1:
             assert (status >> 2) & 1, "the two engines did not start on one cycle"
-            now_post = int(dut.u_timebase.now.value)
+            now_post = chip.now()
             break
     assert now_post is not None, "the engines never started"
 
@@ -890,12 +917,14 @@ async def test_v3_filter_defaults_to_every_pin_and_reads_back(dut):
     """The filter mask resets to 0xFF; a read returns it and changes nothing."""
     chip = Chip(dut)
     await chip.reset()
-    assert int(dut.filter_mask_r.value) == 0xFF
+    if not GATE_LEVEL:
+        assert int(dut.filter_mask_r.value) == 0xFF
 
     replies = await _transact(chip, [Frame(COMMANDS["FILTER"], 1, 0x00)])
     assert not replies[0].cmd & REJECT_BIT, "a FILTER read was rejected"
     assert replies[0].payload == 0xFF
-    assert int(dut.filter_mask_r.value) == 0xFF, "a FILTER read wrote the mask"
+    if not GATE_LEVEL:
+        assert int(dut.filter_mask_r.value) == 0xFF, "a FILTER read wrote the mask"
 
     # An accepted write replies with the new mask and a read sees it.
     write, read = Frame(COMMANDS["FILTER"], 0, 0x3C), Frame(COMMANDS["FILTER"], 1, 0)
@@ -922,10 +951,12 @@ async def test_v3_filter_write_is_rejected_while_an_engine_runs(dut):
     assert replies[0].payload == replies[1].payload == 0xFF, "a rejected write must reply the kept mask"
     assert not replies[2].cmd & REJECT_BIT, "a FILTER read was rejected while running"
     assert replies[2].payload == 0xFF
-    assert int(dut.filter_mask_r.value) == 0xFF
+    if not GATE_LEVEL:
+        assert int(dut.filter_mask_r.value) == 0xFF
 
 
-@cocotb.test()
+#: The synchronized pin level is internal, and no pin shows it directly.
+@cocotb.test(skip=GATE_LEVEL)
 async def test_v3_an_unfiltered_pin_sees_a_glitch_the_filter_rejects(dut):
     """With pin 0 unfiltered and pin 1 filtered, a two-clock pulse on both
     reaches pin 0's synchronized level and never reaches pin 1's."""
@@ -961,8 +992,9 @@ async def test_v3_caparm_arms_stops_and_records_read_back(dut):
     replies = await _transact(chip, [arm])
     assert not replies[0].cmd & REJECT_BIT, "CAPARM arm was rejected"
     assert replies[0].payload == 0x81 << 8, "arm reply must echo {mask, mode} only"
-    assert int(dut.u_capture.armed.value) == 1
-    assert int(dut.u_capture.triggered.value) == 1, "mode 0 triggers on arm"
+    if not GATE_LEVEL:
+        assert int(dut.u_capture.armed.value) == 1
+        assert int(dut.u_capture.triggered.value) == 1, "mode 0 triggers on arm"
 
     # Raise pin 2 so capture records an input change.
     await FallingEdge(dut.clk)
@@ -988,9 +1020,10 @@ async def test_v3_caparm_arms_stops_and_records_read_back(dut):
     assert not any(r.cmd & REJECT_BIT for r in replies), "a CAPREAD was rejected"
     records = [(replies[i].payload, replies[i + 1].payload) for i in range(0, 2 * count, 2)]
     for index, (sample, timestamp) in enumerate(records):
-        assert int(dut.u_capture.records[index].value) == timestamp << 32 | sample, (
-            f"record {index} read back {timestamp:#x}:{sample:#x}"
-        )
+        if not GATE_LEVEL:
+            assert int(dut.u_capture.records[index].value) == timestamp << 32 | sample, (
+                f"record {index} read back {timestamp:#x}:{sample:#x}"
+            )
     assert records[0][1] == trigger_stamp, "the arm record carries the trigger timestamp"
     assert records[0][0] & 0x08, "the arm record carries the trigger annotation"
     assert records[0][0] >> 24 == 0 and records[-1][0] >> 24 == 0x04
@@ -1011,7 +1044,8 @@ async def test_v3_start_does_not_arm_capture(dut):
     assert (int(dut.uo_out.value) >> 1) & 1, "engine 0 is not running"
     replies = await _transact(chip, [Frame(COMMANDS["STATUS"], 1, 0)])
     assert replies[0].payload == 0, f"START touched capture: {replies[0].payload:#x}"
-    assert int(dut.u_capture.armed.value) == 0
+    if not GATE_LEVEL:
+        assert int(dut.u_capture.armed.value) == 0
 
 
 @cocotb.test()
@@ -1051,14 +1085,17 @@ async def test_v3_status_reports_engines_and_capture_and_rejects_others(dut):
             "missed": word >> 21 & 0xFF, "top": word >> 29,
         }
 
-    missed = int(dut.pin_missed_w.value)
+    # Neither program commits a pin or faults, so no flag may be set.
+    if not GATE_LEVEL:
+        assert int(dut.pin_missed_w.value) == 0
+        assert int(dut.e0_fault.value) == int(dut.e1_fault.value) == 0
     assert fields(replies[0].payload) == {
-        "running": 0, "halted": 1, "stalled": 0, "fault": int(dut.e0_fault.value),
-        "tx": 0, "rx": 2, "missed": missed, "top": 0,
+        "running": 0, "halted": 1, "stalled": 0, "fault": 0,
+        "tx": 0, "rx": 2, "missed": 0, "top": 0,
     }
     assert fields(replies[1].payload) == {
-        "running": 1, "halted": 0, "stalled": 0, "fault": int(dut.e1_fault.value),
-        "tx": 3, "rx": 0, "missed": missed, "top": 0,
+        "running": 1, "halted": 0, "stalled": 0, "fault": 0,
+        "tx": 3, "rx": 0, "missed": 0, "top": 0,
     }
 
     # A running engine's flag is recorded every clock, so the store has filled.
@@ -1067,7 +1104,9 @@ async def test_v3_status_reports_engines_and_capture_and_rejects_others(dut):
     assert capture >> 3 & 0x7 == 5, "a full store reports reason 5"
     assert capture >> 6 & 0x3F == 32
     assert capture >> 12 == 0
-    assert replies[3].payload == int(dut.u_capture.trigger_timestamp.value) != 0
+    assert replies[3].payload != 0, "the trigger timestamp was not recorded"
+    if not GATE_LEVEL:
+        assert replies[3].payload == int(dut.u_capture.trigger_timestamp.value)
 
     for reply in replies[4:]:
         assert reply.cmd & REJECT_BIT, f"STATUS address {reply.addr} was not rejected"

@@ -111,6 +111,48 @@ SPEF, STA reports, and reproducible failure diagnostics. The in-container
 `/work` and `/pdk` paths are mount paths, not host paths. Logs can be watched in
 another terminal with `tail -f /tmp/protocol-route-01/flow.log`.
 
+## Release checks on a full run
+
+Three more checks run against the routed netlist of a `--stage full` output.
+`$RUN` below is that output directory and `$NL` is
+`$RUN/physical/v3/runs/local/final/nl/tt_um_mcranny_protocol_emulator_v3.nl.v`.
+
+The chip suite runs at gate level, in WSL, with
+`make -C test -f Makefile.v3gate NETLIST=$NL PDK_ROOT=/tmp/protocol-pdk`.
+It is a zero-delay functional simulation with no SDF. Icarus does not drive the
+`delayed_*` nets the cell models' timing checks feed, so `tools/sim_stdcell.py`
+writes a copy of the cell library without its `specify` blocks, and the SRAM
+model is compiled with `FUNCTIONAL`. The netlist is flat, so `GATES=yes` makes
+the tests read pins only. The glitch test skips, because it reads the
+synchronized pin level, an internal net.
+
+`python -m tools.v3_equiv --netlist $NL --pdk-root /tmp/protocol-pdk --output DIR`
+checks the netlist against the RTL with eqy in the pinned image. Each SRAM is the
+same black box on both sides. Only ports, registers and clock nets keep their
+names, so eqy pairs registers by name and proves each one's next-state logic
+with Yosys's SAT solver. The image has no `make`, so the tool partitions with
+`eqy -m` and runs each partition's proof directly. `DIR/equiv.json` records
+every partition's status. The check passes only if every partition is proved.
+It is not part of the release bar. On the routed V3 netlist most partitions
+end unproved, so the routed netlist is covered by the gate-level suite, LVS and
+timing instead.
+
+`python -m tools.v3_acceptance --run $RUN --precheck PRECHECK.xml --gatelevel
+results_v3gate.xml --output acceptance.json` applies the
+release bar. The flow must be a full run from a clean checkout with no metric
+issues. Slow-corner register-to-register setup slack must be at least 2 ns, and
+fast-corner hold slack at least 0.10 ns. Every precheck must pass, as must every
+gate-level test except the glitch test. The verdict also records the SHA-256 of the GDS, LEF, netlist and
+metrics.
+
+The `V3 release qualification` workflow (`.github/workflows/v3-release.yaml`)
+runs all of this on GitHub for each pull request into `main`. It runs the
+`test` workflow, the full flow and Tiny Tapeout precheck, then the gate-level
+suite, then the acceptance step. The
+dependencies come from `.github/actions/v3-deps`, which reads the pinned
+revisions from `tools/local_flow.py`. Precheck runs on the runner's Python with
+the support tools' pinned requirements, and calls KLayout from the pinned image.
+
 ## Limits
 
 Local ARM64 results need not be bit-identical to Linux AMD64 CI. Final release

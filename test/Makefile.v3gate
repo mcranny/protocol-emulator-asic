@@ -1,0 +1,39 @@
+# The V3 chip suite against a routed netlist, the CMOS5L cell models and the
+# SRAM behavioral model. Run from the repository root:
+#   make -C test -f Makefile.v3gate NETLIST=/abs/tt_um_mcranny_protocol_emulator_v3.nl.v PDK_ROOT=/abs/pdk
+# This is a zero-delay functional run; no SDF is applied.
+SIM ?= icarus
+TOPLEVEL_LANG = verilog
+SIM_BUILD ?= sim_build/v3gate
+COCOTB_RESULTS_FILE ?= results_v3gate.xml
+
+CELLS = $(PDK_ROOT)/ihp-sg13cmos5l/libs.ref/sg13cmos5l_stdcell/verilog
+SRAM = $(PDK_ROOT)/ihp-sg13cmos5l/libs.ref/sg13cmos5l_sram/verilog
+SIM_CELLS = $(CURDIR)/$(SIM_BUILD)/sg13cmos5l_stdcell_sim.v
+VERILOG_SOURCES = \
+	$(CELLS)/sg13cmos5l_udp.v \
+	$(SIM_CELLS) \
+	$(SRAM)/RM_IHPSG13_1P_256x32_c2_bm_bist.v \
+	$(SRAM)/RM_IHPSG13_1P_core_behavioral_bm_bist.v \
+	$(NETLIST)
+
+# Without FUNCTIONAL the SRAM model reads nets only its timing checks drive,
+# and every read returns X under Icarus.
+COMPILE_ARGS += -DFUNCTIONAL
+TOPLEVEL = tt_um_mcranny_protocol_emulator_v3
+COCOTB_TEST_MODULES = v3.test_project
+MODULE = $(COCOTB_TEST_MODULES)
+export GATES := yes
+export PYTHONPATH := $(CURDIR):$(CURDIR)/../host:$(PYTHONPATH)
+
+ifeq ($(NETLIST),)
+$(error NETLIST must name the routed .nl.v netlist)
+endif
+ifeq ($(PDK_ROOT),)
+$(error PDK_ROOT must name the IHP-Open-PDK checkout)
+endif
+
+include $(shell cocotb-config --makefiles)/Makefile.sim
+
+$(SIM_CELLS): $(CELLS)/sg13cmos5l_stdcell.v $(CURDIR)/../tools/sim_stdcell.py
+	python3 $(CURDIR)/../tools/sim_stdcell.py $< $@
