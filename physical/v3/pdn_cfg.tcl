@@ -244,6 +244,47 @@ proc v3_bridge_macro_columns {} {
     }
 }
 
+# Stripes stopped by a macro or by a power obstruction are still needed to
+# power the cells and macro columns, but the precheck rejects every power pin
+# rectangle that does not reach within 10 um of both the top and bottom of the
+# die. Keep all of the metal and export only the full-height stripes as pins.
+proc v3_keep_spanning_power_pins {} {
+    set block [ord::get_db_block]
+    set die [$block getDieArea]
+    set margin [$block micronsToDbu 10.0]
+    foreach netname [concat $::env(VDD_NETS) $::env(GND_NETS)] {
+        set bterm [$block findBTerm $netname]
+        if { $bterm == "NULL" } { continue }
+        set bpins [$bterm getBPins]
+        if { [llength $bpins] == 0 } { continue }
+        set status [[lindex $bpins 0] getPlacementStatus]
+        set spans {}
+        set dropped 0
+        foreach bpin $bpins {
+            foreach box [$bpin getBoxes] {
+                if { [$box yMin] - [$die yMin] <= $margin && [$die yMax] - [$box yMax] <= $margin } {
+                    lappend spans [list [$box getTechLayer] [$box xMin] [$box yMin] [$box xMax] [$box yMax]]
+                } else {
+                    incr dropped
+                }
+            }
+        }
+        if { [llength $spans] == 0 } {
+            error "$netname: no power pin spans the die"
+        }
+        foreach bpin $bpins {
+            odb::dbBPin_destroy $bpin
+        }
+        set bpin [odb::dbBPin_create $bterm]
+        $bpin setPlacementStatus $status
+        foreach span $spans {
+            lassign $span layer x0 y0 x1 y1
+            odb::dbBox_create $bpin $layer $x0 $y0 $x1 $y1
+        }
+        puts "\[INFO\] $netname: kept [llength $spans] full-height pin shapes, dropped $dropped."
+    }
+}
+
 # The placement halo cuts the rows just above and below each macro, and the
 # power generator will not strap a stripe across a gap with no row, so the
 # stripes stop short of the supply columns. Put those row segments back for
@@ -316,5 +357,6 @@ proc pdngen {args} {
     v3_restore_halo_rows
     v3_pdngen {*}$args
     v3_bridge_macro_columns
+    v3_keep_spanning_power_pins
     v3_remove_halo_rows
 }

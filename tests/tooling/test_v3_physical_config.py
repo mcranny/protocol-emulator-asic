@@ -220,7 +220,15 @@ def test_power_grid_script_bridges_stripes_onto_macros():
     assert "more than one segment" in restore
     body = script.split("proc pdngen", 1)[1]
     assert body.index("v3_restore_halo_rows") < body.index("v3_pdngen")
-    assert body.index("v3_bridge_macro_columns") < body.index("v3_remove_halo_rows")
+    assert body.index("v3_bridge_macro_columns") < body.index("v3_keep_spanning_power_pins")
+    assert body.index("v3_keep_spanning_power_pins") < body.index("v3_remove_halo_rows")
+    # The precheck rejects any power pin rectangle that does not reach both die
+    # edges. Deleting the short stripes disconnects the macro supply columns, so
+    # only their pin shapes are dropped and the metal stays.
+    pins = script.split("proc v3_keep_spanning_power_pins", 1)[1].split("\nproc ", 1)[0]
+    assert "dbSBox_destroy" not in pins
+    assert "no power pin spans the die" in pins
+    assert "dbSBox_destroy" not in script
 
 
 def test_routing_obstructions_cover_each_macro_on_metal2_to_metal4():

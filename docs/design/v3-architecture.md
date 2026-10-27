@@ -192,7 +192,10 @@ join them through, so `physical/v3/pdn_cfg.tcl` extends each stripe end that lin
 supply column of its own net 1 µm onto that column. Each macro gets 16 such bridges across 4 VDD,
 4 VDDARRAY and 4 VSS columns, and the script fails if a macro gets none. A Metal4 power-grid
 obstruction covers the off-phase half of each macro and ends 4 µm past its top and bottom
-edges, so the in-phase stripes still reach both ends of the columns. The physical configuration
+edges, so the in-phase stripes still reach both ends of the columns. Every stripe stays in the
+grid, but only the full-height ones are exported as `VPWR` and `VGND` pin shapes, because the
+Tiny Tapeout pin check rejects a power pin rectangle that does not reach within 10 µm of both
+the top and the bottom of the die. The script fails if a supply is left with no such stripe. The physical configuration
 is `physical/v3/config.json`. It also sets Metal2 to Metal4 routing obstructions over each macro
 body, leaving the 1 µm pin edge open, and antenna repair inserts diodes where the router needs
 them; none are placed ahead of routing.
@@ -301,21 +304,20 @@ instead repeats the full antenna repair (`OpenROAD.RepairAntennas`, appended aft
 estimate, before detailed routing locks it in.
 
 IR drop is reported on every full run. Without `VSRC_LOC_FILES` the analysis feeds the grid
-at the library voltage. The full run of this configuration reported a worst drop of 0.19 mV
+at the library voltage. The full run of this configuration reported a worst drop of 11.4 mV
 on 1.2 V. Magic DRC stays off: the Tiny Tapeout precheck for CMOS5L runs KLayout DRC with the
 SG13CMOS5L deck and does not run Magic, and KLayout DRC runs in the flow.
 
 The flow is the stock Tiny Tapeout flow, run locally from RTL. A fresh full run met the timing
-bar: zero setup, hold, slew, capacitance and fanout violations at all three corners, +2.92 ns
-slow-corner register-to-register setup, and +0.112 ns fast-corner hold. Routing DRC, antenna
+bar: zero setup, hold, slew, capacitance and fanout violations at all three corners, +2.94 ns
+slow-corner register-to-register setup, and +0.111 ns fast-corner hold. Routing DRC, antenna
 violations, KLayout DRC and LVS were all zero. The produced GDS is
-`tt_um_mcranny_protocol_emulator_v3.gds`. Tiny Tapeout precheck did not pass. Its pin check
-rejects the LEF because 40 `VGND` and 42 `VPWR` Metal4 rectangles are split around the
-bottom-edge SRAMs; 18 `VGND` and 19 `VPWR` rectangles do span the die. The three precheck
-KLayout invocations did not run on the host. The program-memory tests pass against the SRAM
-behavioral model. The chip-level gate-level suite on the routed netlist passed 2 of 15 tests;
-the other tests read hierarchy that synthesis removed, or an X on an output. No pad timing is
-claimed until Tiny Tapeout publishes CMOS5L pad data.
+`tt_um_mcranny_protocol_emulator_v3.gds`. Tiny Tapeout precheck passed, including the pin check
+and the SG13CMOS5L KLayout deck. The program-memory tests pass against the SRAM behavioral
+model. The chip-level gate-level suite has not been re-run on this netlist; on the previous
+routed netlist it passed 2 of 15 tests, and the other tests read hierarchy that synthesis
+removed, or an X on an output. No pad timing is claimed until Tiny Tapeout publishes CMOS5L
+pad data.
 
 ## Toolchain
 
