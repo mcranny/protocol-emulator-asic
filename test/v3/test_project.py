@@ -39,6 +39,7 @@ from protocol_emulator.v3.host import (
     ENGINE_BIT,
     FRAME_BITS,
     REJECT_BIT,
+    WATCH_DISABLE,
     Frame,
     pack,
     unpack,
@@ -1111,3 +1112,81 @@ async def test_v3_status_reports_engines_and_capture_and_rejects_others(dut):
     for reply in replies[4:]:
         assert reply.cmd & REJECT_BIT, f"STATUS address {reply.addr} was not rejected"
         assert reply.payload == 0, "a rejected STATUS must carry a zero payload"
+
+
+def _watch_word(mask: int, value: int, edges: int, disable: bool = False) -> int:
+    """A WATCH payload. The disable bit clears the slot; the fields are ignored."""
+    return mask | value << 8 | edges << 16 | (WATCH_DISABLE if disable else 0)
+
+
+@cocotb.test(skip=GATE_LEVEL)
+async def test_v3_reconfigure_drops_the_previous_watchers(dut):
+    """CONFIG clears that engine's watchers, and a disable WATCH stays off.
+
+    Two watchers are armed through the host port and a pin edge sets an event.
+    Configuring that engine again with no watchers, then repeating the edge
+    while it runs, leaves the event clear. Arming the slots again and sending
+    a disable WATCH for each does the same. The other engine's watcher is left
+    as it was.
+    """
+    image = assemble("spin:\n    NOP\n    JMP target=spin\n")
+    chip = Chip(dut)
+    await chip.reset()
+
+    writes = [Frame(COMMANDS["WRITE"], addr, word) for addr, word in enumerate(image.words)]
+    replies = await _transact(chip, writes)
+    assert not any(reply.cmd & REJECT_BIT for reply in replies), "a program write was rejected"
+
+    armed = [
+        Frame(COMMANDS["FILTER"], 0, 0x00),
+        Frame(COMMANDS["CONFIG"], 0, 0x03),
+        Frame(COMMANDS["WATCH"], 0, _watch_word(0x01, 0x01, 0x01)),
+        Frame(COMMANDS["WATCH"], 1, _watch_word(0x02, 0x02, 0x02)),
+        Frame(COMMANDS["WATCH"] | ENGINE_BIT, 0, _watch_word(0x01, 0x01, 0x01)),
+        Frame(COMMANDS["START"], 0, 0b01),
+    ]
+    replies = await _transact(chip, armed)
+    assert not any(reply.cmd & REJECT_BIT for reply in replies), "arming the watchers was rejected"
+    assert (int(dut.uo_out.value) >> 1) & 1, "engine 0 did not start"
+
+    async def events_after_edges() -> int:
+        dut.uio_in.value = 0
+        for _ in range(6):
+            await RisingEdge(dut.clk)
+        dut.uio_in.value = 0x03
+        for _ in range(8):
+            await RisingEdge(dut.clk)
+        await FallingEdge(dut.clk)
+        return int(dut.u_engine0.events_r.value)
+
+    assert await events_after_edges() & 1, "an armed watcher did not record the edge"
+
+    stopped = await _transact(chip, [Frame(COMMANDS["STOP"], 0, 0b01)])
+    assert not stopped[0].cmd & REJECT_BIT, "STOP was rejected"
+    dut.uio_in.value = 0
+
+    cleared = await _transact(chip, [
+        Frame(COMMANDS["CONFIG"], 0, 0x03),
+        Frame(COMMANDS["START"], 0, 0b01),
+    ])
+    assert not any(reply.cmd & REJECT_BIT for reply in cleared), "reconfigure was rejected"
+    assert int(dut.e0_w0_en.value) == 0, "CONFIG left watcher 0 enabled"
+    assert int(dut.e0_w1_en.value) == 0, "CONFIG left watcher 1 enabled"
+    assert int(dut.e1_w0_en.value) == 1, "CONFIG of engine 0 cleared engine 1"
+    assert await events_after_edges() == 0, "a watcher cleared by CONFIG still fired"
+
+    stopped = await _transact(chip, [Frame(COMMANDS["STOP"], 0, 0b01)])
+    assert not stopped[0].cmd & REJECT_BIT, "the second STOP was rejected"
+    dut.uio_in.value = 0
+
+    disabled = await _transact(chip, [
+        Frame(COMMANDS["WATCH"], 0, _watch_word(0x01, 0x01, 0x01)),
+        Frame(COMMANDS["WATCH"], 1, _watch_word(0x02, 0x02, 0x02)),
+        Frame(COMMANDS["WATCH"], 0, _watch_word(0, 0, 0, disable=True)),
+        Frame(COMMANDS["WATCH"], 1, _watch_word(0, 0, 0, disable=True)),
+        Frame(COMMANDS["START"], 0, 0b01),
+    ])
+    assert not any(reply.cmd & REJECT_BIT for reply in disabled), "a disable WATCH was rejected"
+    assert int(dut.e0_w0_en.value) == 0, "a disable WATCH left watcher 0 enabled"
+    assert int(dut.e0_w1_en.value) == 0, "a disable WATCH left watcher 1 enabled"
+    assert await events_after_edges() == 0, "a disabled watcher still fired"

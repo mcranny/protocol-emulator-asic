@@ -211,9 +211,24 @@ def test_configure_sends_config_then_one_watch_per_entry(device: FakeDevice) -> 
     ]
 
 
-def test_configure_without_watches_sends_only_config(device: FakeDevice) -> None:
+def test_configure_without_watches_disables_both_slots(device: FakeDevice) -> None:
     loader.configure(device.exchange, 0, 0x0F, 0x00)
-    assert [f.cmd for f in device.sent if f.cmd != CMD["NOP"]] == [CMD["CONFIG"]]
+    commands = [f for f in device.sent if f.cmd != CMD["NOP"]]
+    assert commands == [
+        host.Frame(CMD["CONFIG"], 0, 0x0F),
+        host.Frame(CMD["WATCH"], 0, host.WATCH_DISABLE),
+        host.Frame(CMD["WATCH"], 1, host.WATCH_DISABLE),
+    ]
+
+
+def test_configure_disables_the_slot_it_does_not_set(device: FakeDevice) -> None:
+    loader.configure(device.exchange, 0, 0x0F, 0x00, [(0x01, 0x00, 0x02)])
+    commands = [f for f in device.sent if f.cmd != CMD["NOP"]]
+    assert commands == [
+        host.Frame(CMD["CONFIG"], 0, 0x0F),
+        host.Frame(CMD["WATCH"], 0, 0x01 | 0x02 << 16),
+        host.Frame(CMD["WATCH"], 1, host.WATCH_DISABLE),
+    ]
 
 
 def test_configure_sets_the_abort_bit_for_an_abort_watcher(device: FakeDevice) -> None:

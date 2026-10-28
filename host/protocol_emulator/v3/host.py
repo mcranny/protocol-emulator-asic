@@ -29,6 +29,10 @@ REJECT_BIT: int = 0x80
 #: Bit 6 of the command byte: selects the engine a command addresses.
 ENGINE_BIT: int = 0x40
 
+#: Payload bit 25 of a ``WATCH`` frame. Set, it disables that watcher slot
+#: and the other payload fields are ignored. Clear, the frame enables the slot.
+WATCH_DISABLE: int = 1 << 25
+
 #: Command names mapped to their command-byte codes.
 COMMANDS: dict[str, int] = {
     "NOP": 0x00,

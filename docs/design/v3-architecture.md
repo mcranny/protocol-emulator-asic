@@ -46,8 +46,9 @@ the address in one cycle, the word in the next. `A_MEN` is high only for a fetch
 power-up, so each engine keeps a 256-bit validity bitmap. Fetching an unwritten word is fatal.
 Start is rejected unless every bit is set. A START frame is all-or-nothing: if any commanded
 engine's image is incomplete the whole frame is rejected and neither engine starts, so a pair can
-never be half-started. The loader writes all 256 words, fills unused words with HALT and reads the
-image back before start.
+never be half-started. A host that wants one engine names only that one. Naming an engine whose
+image is incomplete rejects the frame even when the other image is complete. The loader writes all
+256 words, fills unused words with HALT and reads the image back before start.
 
 **CRC.** One shared 16-bit CRC/LFSR. `msb_first` selects the shift direction and therefore which
 end of the register is the polynomial tap: MSB first shifts left and uses the normal-form
@@ -80,6 +81,16 @@ queue is empty, popping nothing. Both are accepted while the engines run, which 
 so every word must be rewritten before the image is complete again; it is rejected while that
 engine runs. The loader issues it before each reload so an interrupted reload leaves the image
 incomplete rather than letting stale valid words make a partial reload startable.
+`CONFIG` (0x03) writes `payload[7:0]` as the addressed engine's ownership mask and
+`payload[15:8]` as its open-drain mask. It is rejected unless both engines are stopped. An
+accepted `CONFIG` clears both of that engine's watcher slots: enable, mask, value, edges and
+abort. It does not change the other engine. The `WATCH` frames for the new configuration are
+sent after `CONFIG`, because a `WATCH` that arrived first would be wiped by the clear.
+`WATCH` (0x04) writes one slot, selected by `addr[0]`, and is rejected unless both engines are
+stopped. With payload bit 25 clear, the slot is enabled: `[7:0]` is the mask, `[15:8]` the
+value, `[23:16]` the edges and `[24]` abort. With bit 25 set, the slot is disabled and those
+fields are cleared. A host that keeps fewer watchers than before sends a disable frame for each
+slot it drops, or relies on the `CONFIG` clear. The loader does both.
 
 The next four commands ignore the engine bit except where noted.
 
@@ -314,10 +325,10 @@ slow-corner register-to-register setup, and +0.111 ns fast-corner hold. Routing 
 violations, KLayout DRC and LVS were all zero. The produced GDS is
 `tt_um_mcranny_protocol_emulator_v3.gds`. Tiny Tapeout precheck passed, including the pin check
 and the SG13CMOS5L KLayout deck. The program-memory tests pass against the SRAM behavioral
-model. The chip-level gate-level suite has not been re-run on this netlist; on the previous
-routed netlist it passed 2 of 15 tests, and the other tests read hierarchy that synthesis
-removed, or an X on an output. No pad timing is claimed until Tiny Tapeout publishes CMOS5L
-pad data.
+model. The release run's gate-level suite passed on that netlist. The glitch test does not run
+at gate level, because it reads the synchronized pin level. The watcher clear is not in that
+run, so those timing numbers and that GDS do not include it. No pad timing is claimed until
+Tiny Tapeout publishes CMOS5L pad data.
 
 ## Toolchain
 
@@ -374,12 +385,13 @@ programs over SPI, starts both engines and compares every `uio` transition with 
 of the same blocks. It also pushes bytes with `TXPUSH` and checks that the engine pulls and drives
 them to match the model, and reads engine records back with `RXPOP`, including the empty-queue
 rejection. Directed tests cover the filter mask (reset value, a write refused while an engine
-runs, a raw pin passing a pulse the filter rejects), capture arm, stop and record readback, and
-each `STATUS` address.
+runs, a raw pin passing a pulse the filter rejects), capture arm, stop and record readback,
+each `STATUS` address, and a reconfigure that drops the previous watchers.
 
 ## Not in this tree yet
 
-- The fresh Tiny Tapeout run and its evidence (source, netlist and GDS hashes).
+- A committed copy of the release-run evidence (source, netlist and GDS hashes). The run is a
+  GitHub Actions artifact. The watcher clear is not in that GDS.
 - The FPGA prototype. The intended board is an Arty A7-35T: a BRAM with the same registered-read
   contract as the SRAM wrapper, an MMCM making 48 MHz from 100 MHz, and a UART-to-SPI bridge.
   It is a comparison aid. It does not verify pad delay or ASIC timing, and it does not gate the

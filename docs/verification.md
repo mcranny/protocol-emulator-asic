@@ -15,18 +15,23 @@ The top-level suite loads both programs over the SPI port, starts both engines
 and compares every `uio` transition with a model built from the same blocks. It
 also pushes bytes with `TXPUSH` and reads records back with `RXPOP`, checking
 the round trip and the empty-queue rejection against the model. Directed tests
-cover the input-filter mask, capture arm, stop and record readback, and each
-`STATUS` address. The integration proof black-boxes the engines and the pin
-cells and proves the ownership, release, atomic-start, write-refusal and
-filter-mask properties of the wiring.
+cover the input-filter mask, capture arm, stop and record readback, each
+`STATUS` address, and a reconfigure that drops the previous watchers. The
+integration proof black-boxes the engines and the pin cells and proves the
+ownership, release, atomic-start, write-refusal and filter-mask properties of
+the wiring.
 
 Two model engines sharing one set of pins are checked for a commit from each
 landing on the same tick, a stall in one leaving the other running, and an
 input event that is absent before its edge, sticky after it, and invisible to
 the engine that is not watching.
 
-What is proved is the induction listed above. What is simulated is the cocotb
-suites and the Python model, including the firmware programs against protocol
-peers. What is not claimed: pad delay, a routed ASIC timing result, an FPGA
-comparison, or a mutation result. The [architecture](design/v3-architecture.md#verification)
-table names each proof.
+What is proved is the induction listed above, including the queue. What is
+simulated is the cocotb suites and the Python model. The queue block and the
+UART, SPI, I2C and WS2812 firmware programs run there too, against protocol
+peers. The release workflow recorded a routed timing result for the RTL before
+the watcher clear; the architecture states the margins, and that run's GDS does
+not include the clear. Netlist-versus-RTL equivalence is not part of that bar.
+[The local build notes](local-build.md) say why. What is not claimed: pad delay,
+an FPGA comparison, or a mutation result. The
+[architecture](design/v3-architecture.md#verification) table names each proof.

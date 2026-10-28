@@ -23,10 +23,15 @@ jobs:
           make -C test -f Makefile.v3filter
           make -C test -f Makefile.v3progmem
           make -C test -f Makefile.v3crc
+          make -C test -f Makefile.v3fifo
           make -C test -f Makefile.v3engine
           make -C test -f Makefile.v3host
           make -C test -f Makefile.v3capture
           make -C test -f Makefile.v3project
+          make -C test -f Makefile.v3spi
+          make -C test -f Makefile.v3uart
+          make -C test -f Makefile.v3i2c
+          make -C test -f Makefile.v3ws2812
       - name: Formal proofs
         run: |
           set -e
@@ -35,6 +40,7 @@ jobs:
           yosys -q formal/v3_input_filter.ys
           yosys -q formal/v3_progmem.ys
           yosys -q formal/v3_crc.ys
+          yosys -q formal/v3_fifo.ys
           yosys -q formal/v3_engine.ys
           yosys -q formal/v3_host_spi.ys
           yosys -q formal/v3_capture.ys

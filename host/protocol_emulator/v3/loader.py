@@ -16,7 +16,7 @@ from collections.abc import Callable, Iterable, Sequence
 from typing import NamedTuple
 
 from . import PROGRAM_WORDS
-from .host import COMMANDS, ENGINE_BIT, REJECT_BIT, VERSION_WORD, Frame
+from .host import COMMANDS, ENGINE_BIT, REJECT_BIT, VERSION_WORD, WATCH_DISABLE, Frame
 from .isa import Image
 
 #: One SPI transfer: shifts a request out and returns the frame shifted back.
@@ -138,9 +138,11 @@ def configure(
 ) -> None:
     """Set an engine's pin ownership, open-drain mask and edge watchers.
 
-    Sends ``CONFIG`` with ``owner | open_drain << 8``, then one ``WATCH`` per
-    entry of ``watches``, indexed by position. Call it while both engines are
-    stopped.
+    Sends ``CONFIG`` first. ``CONFIG`` clears both of that engine's watcher
+    slots, so the ``WATCH`` frames that follow are the whole configuration.
+    One ``WATCH`` is sent for each of the two slots: a supplied entry enables
+    it, and a slot with no entry is disabled (payload bit 25). Call it while
+    both engines are stopped.
 
     :param exchange: The SPI transfer function.
     :param engine: The engine to configure, 0 or 1.
@@ -169,14 +171,18 @@ def configure(
         _check_byte(f"watch {index} value", watch[1])
         _check_byte(f"watch {index} edges", watch[2])
     requests = [Frame(_command("CONFIG", engine), 0, owner | open_drain << 8)]
-    requests.extend(
-        Frame(
-            _command("WATCH", engine),
-            index,
-            watch[0] | watch[1] << 8 | watch[2] << 16 | (bool(watch[3]) if len(watch) == 4 else 0) << 24,
-        )
-        for index, watch in enumerate(watches)
-    )
+    for index in range(_MAX_WATCHES):
+        if index < len(watches):
+            watch = watches[index]
+            payload = (
+                watch[0]
+                | watch[1] << 8
+                | watch[2] << 16
+                | (bool(watch[3]) if len(watch) == 4 else 0) << 24
+            )
+        else:
+            payload = WATCH_DISABLE
+        requests.append(Frame(_command("WATCH", engine), index, payload))
     transact(exchange, requests)
 
 
