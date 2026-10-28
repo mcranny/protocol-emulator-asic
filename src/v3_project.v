@@ -141,9 +141,12 @@ module tt_um_mcranny_protocol_emulator_v3 (
 
     // ------------------------------------------------------------------
     // Configuration registers (written by CONFIG and WATCH while stopped).
-    // CONFIG replaces that engine's configuration, so it clears both of its
+    // CONFIG replaces that engine's configuration, so it disables both of its
     // watcher slots. WATCH frames are sent after CONFIG. Payload bit 25 of a
-    // WATCH disables that slot; otherwise the frame enables it.
+    // WATCH disables that slot; otherwise the frame enables it. Only the
+    // enable is cleared: a disabled slot never sets its event, and start
+    // clears the events, so its stored mask, value, edges and abort bit have
+    // no effect.
     // ------------------------------------------------------------------
     reg [7:0] owner0_r, owner1_r;
     reg [7:0] od0_r,    od1_r;
@@ -189,47 +192,41 @@ module tt_um_mcranny_protocol_emulator_v3 (
                 if (engine_sel == 1'b0) begin
                     owner0_r <= host_payload[7:0];
                     od0_r    <= host_payload[15:8];
-                    e0_w0_mask <= 8'b0; e0_w0_val <= 8'b0; e0_w0_edges <= 8'b0;
-                    e0_w1_mask <= 8'b0; e0_w1_val <= 8'b0; e0_w1_edges <= 8'b0;
                     e0_w0_en <= 1'b0; e0_w1_en <= 1'b0;
-                    e0_w0_abort <= 1'b0; e0_w1_abort <= 1'b0;
                 end else begin
                     owner1_r <= host_payload[7:0];
                     od1_r    <= host_payload[15:8];
-                    e1_w0_mask <= 8'b0; e1_w0_val <= 8'b0; e1_w0_edges <= 8'b0;
-                    e1_w1_mask <= 8'b0; e1_w1_val <= 8'b0; e1_w1_edges <= 8'b0;
                     e1_w0_en <= 1'b0; e1_w1_en <= 1'b0;
-                    e1_w0_abort <= 1'b0; e1_w1_abort <= 1'b0;
                 end
             end
             if (code == CMD_WATCH && both_stopped) begin
                 if (engine_sel == 1'b0) begin
                     if (host_addr[0] == 1'b0) begin
                         e0_w0_en    <= ~host_payload[25];
-                        e0_w0_mask  <= host_payload[25] ? 8'b0 : host_payload[7:0];
-                        e0_w0_val   <= host_payload[25] ? 8'b0 : host_payload[15:8];
-                        e0_w0_edges <= host_payload[25] ? 8'b0 : host_payload[23:16];
-                        e0_w0_abort <= host_payload[25] ? 1'b0 : host_payload[24];
+                        e0_w0_mask  <= host_payload[7:0];
+                        e0_w0_val   <= host_payload[15:8];
+                        e0_w0_edges <= host_payload[23:16];
+                        e0_w0_abort <= host_payload[24];
                     end else begin
                         e0_w1_en    <= ~host_payload[25];
-                        e0_w1_mask  <= host_payload[25] ? 8'b0 : host_payload[7:0];
-                        e0_w1_val   <= host_payload[25] ? 8'b0 : host_payload[15:8];
-                        e0_w1_edges <= host_payload[25] ? 8'b0 : host_payload[23:16];
-                        e0_w1_abort <= host_payload[25] ? 1'b0 : host_payload[24];
+                        e0_w1_mask  <= host_payload[7:0];
+                        e0_w1_val   <= host_payload[15:8];
+                        e0_w1_edges <= host_payload[23:16];
+                        e0_w1_abort <= host_payload[24];
                     end
                 end else begin
                     if (host_addr[0] == 1'b0) begin
                         e1_w0_en    <= ~host_payload[25];
-                        e1_w0_mask  <= host_payload[25] ? 8'b0 : host_payload[7:0];
-                        e1_w0_val   <= host_payload[25] ? 8'b0 : host_payload[15:8];
-                        e1_w0_edges <= host_payload[25] ? 8'b0 : host_payload[23:16];
-                        e1_w0_abort <= host_payload[25] ? 1'b0 : host_payload[24];
+                        e1_w0_mask  <= host_payload[7:0];
+                        e1_w0_val   <= host_payload[15:8];
+                        e1_w0_edges <= host_payload[23:16];
+                        e1_w0_abort <= host_payload[24];
                     end else begin
                         e1_w1_en    <= ~host_payload[25];
-                        e1_w1_mask  <= host_payload[25] ? 8'b0 : host_payload[7:0];
-                        e1_w1_val   <= host_payload[25] ? 8'b0 : host_payload[15:8];
-                        e1_w1_edges <= host_payload[25] ? 8'b0 : host_payload[23:16];
-                        e1_w1_abort <= host_payload[25] ? 1'b0 : host_payload[24];
+                        e1_w1_mask  <= host_payload[7:0];
+                        e1_w1_val   <= host_payload[15:8];
+                        e1_w1_edges <= host_payload[23:16];
+                        e1_w1_abort <= host_payload[24];
                     end
                 end
             end

@@ -83,14 +83,16 @@ engine runs. The loader issues it before each reload so an interrupted reload le
 incomplete rather than letting stale valid words make a partial reload startable.
 `CONFIG` (0x03) writes `payload[7:0]` as the addressed engine's ownership mask and
 `payload[15:8]` as its open-drain mask. It is rejected unless both engines are stopped. An
-accepted `CONFIG` clears both of that engine's watcher slots: enable, mask, value, edges and
-abort. It does not change the other engine. The `WATCH` frames for the new configuration are
-sent after `CONFIG`, because a `WATCH` that arrived first would be wiped by the clear.
+accepted `CONFIG` disables both of that engine's watcher slots. It does not change the other
+engine. The `WATCH` frames for the new configuration are sent after `CONFIG`, because a `WATCH`
+that arrived first would be disabled by it.
 `WATCH` (0x04) writes one slot, selected by `addr[0]`, and is rejected unless both engines are
-stopped. With payload bit 25 clear, the slot is enabled: `[7:0]` is the mask, `[15:8]` the
-value, `[23:16]` the edges and `[24]` abort. With bit 25 set, the slot is disabled and those
-fields are cleared. A host that keeps fewer watchers than before sends a disable frame for each
-slot it drops, or relies on the `CONFIG` clear. The loader does both.
+stopped. `[7:0]` is the mask, `[15:8]` the value, `[23:16]` the edges and `[24]` abort. With
+payload bit 25 clear, the slot is enabled. With bit 25 set, it is disabled. Only the enable is
+cleared, by either command. A disabled slot never sets its event bit, and start clears the event
+bits, so its stored fields, including abort, have no effect. A host that keeps fewer watchers
+than before sends a disable frame for each slot it drops, or relies on `CONFIG`. The loader does
+both.
 
 The next four commands ignore the engine bit except where noted.
 

@@ -138,7 +138,7 @@ def configure(
 ) -> None:
     """Set an engine's pin ownership, open-drain mask and edge watchers.
 
-    Sends ``CONFIG`` first. ``CONFIG`` clears both of that engine's watcher
+    Sends ``CONFIG`` first. ``CONFIG`` disables both of that engine's watcher
     slots, so the ``WATCH`` frames that follow are the whole configuration.
     One ``WATCH`` is sent for each of the two slots: a supplied entry enables
     it, and a slot with no entry is disabled (payload bit 25). Call it while

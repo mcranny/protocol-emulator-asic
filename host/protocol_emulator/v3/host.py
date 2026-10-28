@@ -29,8 +29,8 @@ REJECT_BIT: int = 0x80
 #: Bit 6 of the command byte: selects the engine a command addresses.
 ENGINE_BIT: int = 0x40
 
-#: Payload bit 25 of a ``WATCH`` frame. Set, it disables that watcher slot
-#: and the other payload fields are ignored. Clear, the frame enables the slot.
+#: Payload bit 25 of a ``WATCH`` frame. Set, it disables that watcher slot,
+#: and the other payload fields have no effect. Clear, the frame enables it.
 WATCH_DISABLE: int = 1 << 25
 
 #: Command names mapped to their command-byte codes.
