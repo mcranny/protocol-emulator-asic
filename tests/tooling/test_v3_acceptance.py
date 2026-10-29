@@ -46,6 +46,23 @@ def test_accepts_a_build_that_meets_every_check(tmp_path: Path):
     assert set(verdict["sha256"]) == set(LAYOUT)
 
 
+def test_the_watcher_reconfigure_test_is_an_allowed_gate_level_skip(tmp_path: Path):
+    """It reads internal signals (events_r, e0_w0_en) a flat gate netlist drops."""
+    name = "test_v3_reconfigure_drops_the_previous_watchers"
+    assert name in GATE_SKIPS
+    args, out = _build(tmp_path, gate={"test_a": "pass", name: "skip"})
+    assert main(args) == 0
+    assert json.loads(out.read_text())["issues"] == []
+
+
+def test_accepts_every_allowed_gate_level_skip(tmp_path: Path):
+    """Every name in GATE_SKIPS is an allowed skip, not just the first."""
+    for name in GATE_SKIPS:
+        args, out = _build(tmp_path, gate={"test_a": "pass", name: "skip"})
+        assert main(args) == 0, f"{name} was not accepted as a gate-level skip"
+        assert json.loads(out.read_text())["issues"] == []
+
+
 @pytest.mark.parametrize("change, expected", [
     ({"evidence": {"source_dirty": True}}, "modified checkout"),
     ({"evidence": {"exit_code": 2}}, "flow exit code 2"),

@@ -25,7 +25,12 @@ MARGINS = {
     "timing__hold__ws__corner:nom_fast_1p32V_m40C": 0.10,
 }
 #: Gate-level tests allowed to skip, because they read a net no pin shows.
-GATE_SKIPS = {"test_v3_an_unfiltered_pin_sees_a_glitch_the_filter_rejects"}
+GATE_SKIPS = {
+    "test_v3_an_unfiltered_pin_sees_a_glitch_the_filter_rejects",
+    # Reads u_engine0.events_r and e0_w0_en/e0_w1_en, internal registers a
+    # flat gate-level netlist does not keep under their RTL names.
+    "test_v3_reconfigure_drops_the_previous_watchers",
+}
 
 
 def sha256(path: Path) -> str:
