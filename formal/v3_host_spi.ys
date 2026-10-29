@@ -1,0 +1,30 @@
+# Proof: F-V3-HOST-SPI
+# Top: v3_host_spi
+# Assumptions: Initial sampled reset; arbitrary SCK, CS_n, MOSI, ena and reply
+#   afterwards, except that CS_n stays high for at least 4 clocks after it
+#   rises.
+# Properties: SCK, CS_n and MOSI pass two flops with no logic between; frame
+#   accepted only on exactly 48 synchronized SCK rising edges, rejected at
+#   47, 49 and every other count, never both; MISO is low whenever the raw
+#   CS_n is high; the response for a frame is shifted out only on the following
+#   frame.
+# Method: temporal induction; bounded success alone is insufficient.
+#   Three bounded runs then show the 47-, 48- and 49-edge frames are reachable.
+# Scope and abstractions: formal/README.md (V3 host SPI).
+
+read_verilog -formal src/v3_host_spi.v
+prep -top v3_host_spi
+flatten
+async2sync
+dffunmap
+design -save host_spi
+sat -seq 4 -tempinduct -maxsteps 16 -set-assumes -prove-asserts -verify
+
+# Non-vacuity: frames of exactly 48, 47 and 49 edges are reachable under the
+# same assumptions, so the properties above are not satisfied trivially.
+design -load host_spi
+sat -seq 112 -set-assumes -set-at 112 ena 1 -set-at 112 rst_n 1 -set-at 112 ena 1 -set-at 112 rst_n 1 -set-at 112 g_end_q 1 -set-at 112 g_count_q 48 -set-at 112 cmd_valid 1 -verify
+design -load host_spi
+sat -seq 112 -set-assumes -set-at 112 ena 1 -set-at 112 rst_n 1 -set-at 112 ena 1 -set-at 112 rst_n 1 -set-at 112 g_end_q 1 -set-at 112 g_count_q 47 -set-at 112 frame_error 1 -verify
+design -load host_spi
+sat -seq 112 -set-assumes -set-at 112 ena 1 -set-at 112 rst_n 1 -set-at 112 ena 1 -set-at 112 rst_n 1 -set-at 112 g_end_q 1 -set-at 112 g_count_q 49 -set-at 112 frame_error 1 -verify

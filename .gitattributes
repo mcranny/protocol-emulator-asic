@@ -1,0 +1,8 @@
+# Keep LF in the working tree on every platform. The Linux flow runs these
+# scripts, and provenance hashes must match between Windows and WSL.
+* text=auto eol=lf
+*.png binary
+*.gds binary
+*.gds.gz binary
+*.jpg binary
+*.pdf binary

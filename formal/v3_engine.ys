@@ -1,0 +1,21 @@
+# Proof: F-V3-ENGINE
+# Top: v3_engine
+# Assumptions: Initial sampled reset; fetch_data and fetch_written are free
+#   every cycle, so every instruction stream is over-approximated. Pin levels,
+#   queue levels/data and the CRC value are free inputs too.
+# Properties: Return-stack depth bound, commits only strobe owned pins, the
+#   external queue levels are never over/underflowed, a bubble cycle has no
+#   side effects, errors are sticky, a taken branch costs exactly two cycles,
+#   RET on an empty stack faults and halts, and each commit, queue, CRC and
+#   clear-missed strobe equals its op retiring.
+# Method: temporal induction.
+# Scope and abstractions: formal/README.md.
+
+read_verilog -formal -DFORMAL -I src src/v3_engine.v
+prep -top v3_engine
+flatten
+memory_map
+opt
+async2sync
+dffunmap
+sat -seq 4 -tempinduct -maxsteps 16 -set-assumes -prove-asserts -verify

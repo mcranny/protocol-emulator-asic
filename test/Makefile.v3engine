@@ -1,0 +1,12 @@
+SIM ?= icarus
+TOPLEVEL_LANG = verilog
+VERILOG_SOURCES = $(CURDIR)/../src/v3_engine.v
+VERILOG_INCLUDE_DIRS = $(CURDIR)/../src
+COMPILE_ARGS += -I$(CURDIR)/../src
+TOPLEVEL = v3_engine
+COCOTB_TEST_MODULES = v3.test_engine
+MODULE = $(COCOTB_TEST_MODULES)
+SIM_BUILD = sim_build/v3engine
+COCOTB_RESULTS_FILE = results_v3engine.xml
+export PYTHONPATH := $(CURDIR):$(CURDIR)/../host:$(PYTHONPATH)
+include $(shell cocotb-config --makefiles)/Makefile.sim

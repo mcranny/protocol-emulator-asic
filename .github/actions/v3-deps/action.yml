@@ -1,0 +1,37 @@
+name: V3 pinned dependencies
+description: Fetch the PDK, the support tools and the flow image at the revisions tools/local_flow.py pins.
+inputs:
+  image:
+    description: Also pull the flow image
+    default: 'true'
+  support-tools:
+    description: Also fetch tt-support-tools
+    default: 'true'
+runs:
+  using: composite
+  steps:
+    - name: Read the pinned revisions
+      shell: bash
+      run: |
+        python - <<'EOF' >> "$GITHUB_ENV"
+        from tools.local_flow import IMAGE, PDK_REV, TT_REV
+        print(f"V3_IMAGE={IMAGE}\nV3_PDK_REV={PDK_REV}\nV3_TT_REV={TT_REV}")
+        EOF
+        echo "V3_PDK=$RUNNER_TEMP/pdk" >> "$GITHUB_ENV"
+        echo "V3_TT=$RUNNER_TEMP/tt" >> "$GITHUB_ENV"
+    - name: Fetch the PDK
+      shell: bash
+      run: |
+        git clone --filter=blob:none --no-checkout https://github.com/IHP-GmbH/IHP-Open-PDK.git "$V3_PDK"
+        git -C "$V3_PDK" sparse-checkout set ihp-sg13cmos5l ihp-sg13g2
+        git -C "$V3_PDK" checkout "$V3_PDK_REV"
+    - name: Fetch the support tools
+      if: inputs.support-tools == 'true'
+      shell: bash
+      run: |
+        git clone https://github.com/TinyTapeout/tt-support-tools.git "$V3_TT"
+        git -C "$V3_TT" checkout "$V3_TT_REV"
+    - name: Pull the flow image
+      if: inputs.image == 'true'
+      shell: bash
+      run: docker pull "$V3_IMAGE"

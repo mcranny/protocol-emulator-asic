@@ -1,0 +1,9 @@
+SIM ?= icarus
+TOPLEVEL_LANG = verilog
+VERILOG_SOURCES = $(CURDIR)/../src/v3_input_filter.v
+TOPLEVEL = v3_input_filter
+MODULE = v3.test_input_filter
+SIM_BUILD = sim_build/v3filter
+COCOTB_RESULTS_FILE = results_v3filter.xml
+export PYTHONPATH := $(CURDIR):$(CURDIR)/../host:$(PYTHONPATH)
+include $(shell cocotb-config --makefiles)/Makefile.sim

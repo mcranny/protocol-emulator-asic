@@ -1,0 +1,18 @@
+# Proof: F-V3-PINCELL
+# Top: v3_pin_cell
+# Assumptions: Initial sampled reset; free-running timebase (now increments by 1
+#   each cycle); arbitrary enable, commit, deadlines, pad input and clear.
+# Properties: Never early, fires on time, exactly-due boundary, past-due applies
+#   and flags, no overwrite, open-drain safety, release, missed stickiness, and
+#   bounded liveness (an occupied slot is free within distance + 1 cycles).
+# Method: temporal induction; bounded success alone is insufficient.
+# Scope and abstractions: formal/README.md.
+
+read_verilog -formal src/v3_pin_cell.v
+prep -top v3_pin_cell
+flatten
+memory_map
+opt
+async2sync
+dffunmap
+sat -seq 5 -tempinduct -maxsteps 16 -set-assumes -prove-asserts -verify

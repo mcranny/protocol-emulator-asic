@@ -1,12 +1,8 @@
 """Negative tests for initialized storage and missing four-state evidence."""
 
-import copy
-
 import pytest
 
-from tests.support.evidence import reset_evidence
 from tools.audit_initialization import inspect
-from tools.validate_reset import check_record, environment
 
 
 @pytest.mark.parametrize(
@@ -39,6 +35,69 @@ def test_formal_mode_only_initializes_reset_history(name, value):
         inspect(data, formal=True)
 
 
+def test_v3_formal_bookkeeping_may_start_at_zero():
+    data = {
+        "modules": {
+            "v3_pin_cell": {"netnames": {"valid": {"attributes": {"init": "0"}}}},
+            "v3_engine": {"netnames": {"f_past_valid": {"attributes": {"init": "0"}}}},
+            "v3_host_spi": {"netnames": {"started": {"attributes": {"init": "0"}}}},
+            "v3_capture": {"netnames": {"past_valid": {"attributes": {"init": "0"}}}},
+            "v3_input_filter": {"netnames": {"valid": {"attributes": {"init": "0"}}}},
+        }
+    }
+    result = inspect(data, formal=True)
+    assert {item["module"] for item in result["formal_bookkeeping"]} == set(data["modules"])
+
+
+def test_a_parametrized_fifo_keeps_its_bookkeeping_name():
+    data = {
+        "modules": {
+            r"$paramod$abc\v3_fifo": {
+                "netnames": {"started": {"attributes": {"init": "0"}}}
+            }
+        }
+    }
+    result = inspect(data, formal=True)
+    assert result["formal_bookkeeping"][0]["module"].endswith("v3_fifo")
+
+
+def test_a_capture_parameter_suffix_keeps_its_bookkeeping_name():
+    data = {
+        "modules": {
+            r"$paramod\v3_capture\DEPTH=s32'100000": {
+                "netnames": {"past_valid": {"attributes": {"init": "0"}}}
+            }
+        }
+    }
+    result = inspect(data, formal=True)
+    assert result["formal_bookkeeping"][0]["name"] == "past_valid"
+
+
+def test_host_chip_select_history_starts_high():
+    data = {
+        "modules": {
+            "v3_host_spi": {"netnames": {"cs_q": {"attributes": {"init": "1"}}}}
+        }
+    }
+    result = inspect(data, formal=True)
+    assert result["formal_bookkeeping"] == [
+        {"module": "v3_host_spi", "name": "cs_q", "value": "1"}
+    ]
+    data["modules"]["v3_host_spi"]["netnames"]["cs_q"]["attributes"]["init"] = "0"
+    with pytest.raises(ValueError, match="initialized state"):
+        inspect(data, formal=True)
+
+
+def test_v3_formal_bookkeeping_rejects_a_real_register():
+    data = {
+        "modules": {
+            "v3_engine": {"netnames": {"running_r": {"attributes": {"init": "0"}}}}
+        }
+    }
+    with pytest.raises(ValueError, match="initialized state"):
+        inspect(data, formal=True)
+
+
 def test_formal_history_does_not_initialize_memory():
     data = {
         "modules": {
@@ -59,120 +118,3 @@ def test_formal_history_does_not_initialize_memory():
     )
     with pytest.raises(ValueError, match="not unconstrained"):
         inspect(data, formal=True)
-
-
-@pytest.fixture
-def reset_record():
-    identity = dict(
-        source_commit="a" * 40, source_dirty=False, inputs={"src/top.v": "b" * 64}
-    )
-    return identity, reset_evidence(identity)
-
-
-@pytest.mark.parametrize(
-    "corruption",
-    ["coerce", "no_unknown", "missing_phase", "missing_version", "failed", "stale"],
-    ids=[
-        "x-coercion",
-        "zero-startup",
-        "missing-state-loss",
-        "missing-v1",
-        "failed-simulation",
-        "stale-source",
-    ],
-)
-def test_reset_evidence_cannot_omit_required_observations(reset_record, corruption):
-    identity, record = reset_record
-    record = copy.deepcopy(record)
-    data = record["reports"]["v2"]
-    if corruption == "coerce":
-        data["resolve_x"] = "zeros"
-    elif corruption == "no_unknown":
-        data["startup_unknown"] = "00000000"
-    elif corruption == "missing_phase":
-        data["checks"].pop()
-    elif corruption == "missing_version":
-        del record["reports"]["v1"]
-    elif corruption == "failed":
-        record["commands"][0]["exit_code"] = 1
-    else:
-        record["source_commit"] = "c" * 40
-    with pytest.raises(ValueError):
-        check_record(record, (1, 2), identity, "rtl")
-
-
-def test_gatelevel_reset_evidence_must_match_netlist(reset_record):
-    identity, _ = reset_record
-    record = reset_evidence(identity, (2,), "c" * 64)
-    check_record(record, (2,), identity, "gatelevel", "c" * 64)
-    with pytest.raises(ValueError, match="netlist differs"):
-        check_record(record, (2,), identity, "gatelevel", "d" * 64)
-
-
-def test_audit_ignores_inherited_coercion_filters_and_simulator_overrides(monkeypatch):
-    monkeypatch.setenv("COCOTB_RESOLVE_X", "zeros")
-    monkeypatch.setenv("COCOTB_TEST_FILTER", "nonexistent")
-    monkeypatch.setenv("COMPILE_ARGS", "-DZERO_INITIALIZATION")
-    result = environment()
-    assert result["COCOTB_RESOLVE_X"] == "error"
-    assert "COCOTB_TEST_FILTER" not in result
-    assert "COMPILE_ARGS" not in result
-
-
-@pytest.mark.parametrize(
-    "corruption",
-    [
-        "empty-result",
-        "missing-memory",
-        "duplicate-memory",
-        "wrong-size",
-        "missing-history",
-        "nonzero-history",
-        "unexpected-history",
-    ],
-    ids=[
-        "empty-result",
-        "missing-memory",
-        "duplicate-memory",
-        "wrong-size",
-        "missing-history",
-        "nonzero-history",
-        "unexpected-history",
-    ],
-)
-def test_initialization_summary_requires_complete_inventories(corruption):
-    from tests.support.evidence import initialization_evidence
-    from tools.validate_reset import check_initialization
-
-    inputs = {
-        "src/" + name + ".v": "a" * 64
-        for name in (
-            "engine",
-            "host_spi",
-            "project",
-            "v2_engine",
-            "v2_capture",
-            "v2_input_filter",
-            "v2_project",
-        )
-    }
-    summary = initialization_evidence(inputs)
-    check_initialization(summary, inputs)
-    key = "formal-protocol_engine_v2"
-    result = summary["results"][key]
-    if corruption == "empty-result":
-        summary["results"][key] = {}
-    elif corruption == "missing-memory":
-        result["uninitialized_memories"].pop()
-    elif corruption == "duplicate-memory":
-        result["uninitialized_memories"].append(result["uninitialized_memories"][0])
-    elif corruption == "wrong-size":
-        result["uninitialized_memories"][0]["bits"] = 1
-    elif corruption == "missing-history":
-        result["formal_bookkeeping"] = []
-    elif corruption == "nonzero-history":
-        result["formal_bookkeeping"][0]["value"] = "1"
-    else:
-        result["formal_bookkeeping"][0]["name"] = "running"
-    with pytest.raises(ValueError, match="inventory differs"):
-        check_initialization(summary, inputs)

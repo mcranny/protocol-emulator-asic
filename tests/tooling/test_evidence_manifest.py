@@ -10,7 +10,7 @@ def test_artifact_checksums(tmp_path):
     path = tmp_path / "wave.fst"
     path.write_bytes(b"known waveform bytes")
     assert manifest.checksums([path, path, tmp_path / "missing"]) == {
-        str(path): {
+        path.as_posix(): {
             "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
             "bytes": 20,
         }

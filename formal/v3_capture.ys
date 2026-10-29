@@ -1,0 +1,15 @@
+# Proof: F-V3-CAPTURE
+# Top: v3_capture
+# Assumptions: Initial sampled reset; arbitrary sampling, timestamp and control inputs.
+# Properties: Count bound, truncation, reason 6 never reported, invalid read masking, and stopped-state stability.
+# Method: temporal induction; bounded success alone is insufficient.
+# Scope and abstractions: formal/README.md.
+
+read_verilog -formal src/v3_capture.v
+prep -top v3_capture
+flatten
+memory_map
+opt
+async2sync
+dffunmap
+sat -seq 4 -tempinduct -maxsteps 16 -set-assumes -prove-asserts -verify

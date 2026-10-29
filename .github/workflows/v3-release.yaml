@@ -1,0 +1,137 @@
+name: V3 release qualification
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: v3-release-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  RUN_DIR: /home/runner/v3-run
+jobs:
+  functional:
+    uses: ./.github/workflows/test.yaml
+  harden:
+    needs: functional
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.11'
+      - uses: ./.github/actions/v3-deps
+      - name: Full CMOS5L flow from RTL
+        run: |
+          df -h /
+          python tools/local_flow.py --pdk-root "$V3_PDK" --tt-root "$V3_TT" \
+            --output "$RUN_DIR" --stage full --threads "$(nproc)"
+      - name: Tiny Tapeout precheck
+        run: |
+          pip install -r "$V3_TT/precheck/requirements.txt"
+          mkdir -p "$RUNNER_TEMP/bin"
+          {
+            echo '#!/bin/bash'
+            echo 'exec docker run --rm --network none \'
+            echo "  -v \"$RUNNER_TEMP:$RUNNER_TEMP\" \\"
+            echo "  -v \"$RUN_DIR:$RUN_DIR\" \\"
+            echo '  -v /tmp:/tmp \'
+            echo '  -w "$(pwd)" -e PDK_ROOT -e PDK \'
+            echo "  \"$V3_IMAGE\" klayout \"\$@\""
+          } > "$RUNNER_TEMP/bin/klayout"
+          chmod +x "$RUNNER_TEMP/bin/klayout"
+          export PATH="$RUNNER_TEMP/bin:$PATH" PDK_ROOT="$V3_PDK" PDK=ihp-sg13cmos5l
+          cd "$V3_TT/precheck"
+          python precheck.py --tech ihp-sg13cmos5l \
+            --gds "$RUN_DIR/physical/v3/runs/local/final/gds/tt_um_mcranny_protocol_emulator_v3.gds"
+      - name: Keep the precheck reports with the run
+        if: always()
+        run: mkdir -p "$RUN_DIR/precheck" && cp -r "$V3_TT/precheck/reports/." "$RUN_DIR/precheck/"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: v3-build
+          path: |
+            ${{ env.RUN_DIR }}/local-evidence.json
+            ${{ env.RUN_DIR }}/flow.log
+            ${{ env.RUN_DIR }}/info.yaml
+            ${{ env.RUN_DIR }}/precheck
+            ${{ env.RUN_DIR }}/physical/v3/config_merged.json
+            ${{ env.RUN_DIR }}/physical/v3/runs/local/final
+          if-no-files-found: error
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: failure() || cancelled()
+        with:
+          name: v3-build-diagnostics
+          path: |
+            ${{ env.RUN_DIR }}/physical/v3/runs/local/*/*.log
+            ${{ env.RUN_DIR }}/physical/v3/runs/local/*/reports
+          if-no-files-found: warn
+  gatelevel:
+    needs: harden
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.11'
+      - uses: ./.github/actions/v3-deps
+        with:
+          image: 'false'
+          support-tools: 'false'
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: v3-build
+          path: ${{ env.RUN_DIR }}
+      - name: Install simulation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y iverilog
+          pip install -r test/requirements.txt
+      - name: Chip suite on the routed netlist
+        run: |
+          make -C test -f Makefile.v3gate PDK_ROOT="$V3_PDK" \
+            NETLIST="$RUN_DIR/physical/v3/runs/local/final/nl/tt_um_mcranny_protocol_emulator_v3.nl.v"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: v3-gatelevel
+          path: test/results_v3gate.xml
+          if-no-files-found: error
+  acceptance:
+    needs: [harden, gatelevel]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: v3-build
+          path: ${{ env.RUN_DIR }}
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: v3-gatelevel
+          path: ${{ runner.temp }}/gatelevel
+      - name: Apply the release bar
+        run: |
+          python -m tools.v3_acceptance --run "$RUN_DIR" \
+            --precheck "$RUN_DIR/precheck/results.xml" \
+            --gatelevel "$RUNNER_TEMP/gatelevel/results_v3gate.xml" \
+            --output "$RUN_DIR/acceptance.json"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: v3-acceptance
+          path: ${{ env.RUN_DIR }}/acceptance.json
+          if-no-files-found: error

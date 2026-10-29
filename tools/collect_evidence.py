@@ -26,7 +26,7 @@ def checksums(paths):
             with path.open("rb") as stream:
                 for chunk in iter(lambda: stream.read(1024 * 1024), b""):
                     digest.update(chunk)
-            result[str(path)] = {"sha256": digest.hexdigest(), "bytes": path.stat().st_size}
+            result[path.as_posix()] = {"sha256": digest.hexdigest(), "bytes": path.stat().st_size}
     return result
 
 
@@ -46,8 +46,7 @@ def collect(kind):
                 "src/config.json", "info.yaml", "test/requirements.txt",
                 "formal/*.ys", "examples/*.asm", "test/**/*.py", "test/Makefile*",
                 "tests/**/*.py", "build/v2-mutations/results.json",
-                "host/protocol_emulator/*.py", "host/protocol_emulator/v2/*.py",
-                "physical/v2/*", "tools/v2_*.py"]
+                "host/protocol_emulator/*.py", "host/protocol_emulator/v2/*.py"]
     paths = [path for pattern in patterns for path in Path(".").glob(pattern)]
     if kind == "gatelevel":
         paths += [Path("test/gate_level_netlist.v"), Path("tt_submission/pdk.json"),

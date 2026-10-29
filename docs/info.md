@@ -2,39 +2,31 @@
 
 ## How it works
 
-V2 has two programmable timing engines, each with 64 24-bit instructions,
-16 TX bytes and 16 RX records. At 25 MHz, ordinary firmware implements UART
-transmit/receive at approximately 115200 baud or 1 Mbaud, SPI modes 0–3 in
-controller/target roles, and I2C at 100/400 kHz in controller/target roles.
-A separate triggered capture unit records up to 32 timestamped pin samples.
-The V2 top is `tt_um_mcranny_protocol_emulator_v2`. Default project metadata is
-still V1 until the release-promotion step; this datasheet describes V2.
+V3 has two programmable engines sharing eight protocol pins and one 48 MHz
+timebase. Each engine has 256 words of 32-bit program memory in SRAM and a
+private time cursor. Each pin holds one pending `{due_time, value, oe}` commit
+and applies it on its due tick. A shared CRC/LFSR serves both engines, engine 0
+first. A 32-record capture unit stamps pin activity with the shared timestamp
+and does not control the engines. The top module is
+`tt_um_mcranny_protocol_emulator_v3`.
 
-Programs share eight bidirectional protocol pins through disjoint ownership
-masks. Open-drain masks release high levels. Reset, deselection, halt and fatal
-errors release protocol outputs. Following state loss, assert reset, wait for
-its synchronizer, reconfigure ownership/watches/filtering, reload programs and
-refill queues before restarting. Program and capture retention across power
-loss is not supported. See [architecture](v2-architecture.md) and
-[reset behavior](reset-and-power.md).
+An engine can drive only the pins it owns, and the two ownership masks are
+disjoint. Open-drain pins never drive high. Reset and disabling the design
+release every protocol output.
 
 ## How to test
 
-Connect a mode-0 SPI host to ui0 (SCK), ui1 (CS_n), ui2 (MOSI), and uo0 (MISO).
-Use at most 1 MHz SCK, exactly 40 clocks per frame and at least 200 ns for
-high/low and CS setup/hold/inactive intervals. uo1/uo2 indicate engines 0/1
-running; uo3 indicates an aggregate error. Read version 0x020240 before use.
+Connect a mode-0 SPI host to `ui_in[0]` (SCK), `ui_in[1]` (CS_n) and `ui_in[2]`
+(MOSI), and read `uo_out[0]` (MISO). A frame is exactly 48 clocks. The response
+comes back on the following frame. `uo_out[1]` and `uo_out[2]` are the two
+engines running; `uo_out[3]` is an aggregate error. `uio[7:0]` are the protocol
+pins.
 
-Load and verify firmware, configure disjoint ownership, queue data and start
-the selected engines. [Runnable examples](example-programs.md) provide UART,
-SPI and I2C pin assignments, expected transactions and linked verification.
-The [verification write-up](verification.md) and [release evidence](release-evidence.md)
-separate model/RTL checks, stock TT qualification and demonstrated hardware.
+Write all 256 program words, read them back, configure disjoint ownership, then
+start. The version word is `0x03000000`.
 
 ## External hardware
 
-A compatible SPI host and protocol peer or logic analyzer are needed for a
-physical demonstration. I2C/open-drain lines need suitable pull-ups. Check pad
-and board voltages and avoid competing push-pull drivers. Digital verification
-does not establish analog rise times or hardware operation; no physical
-board demonstration has been completed.
+A mode-0 SPI host and a way to observe the protocol pins are enough for a
+digital demonstration. I2C and other open-drain signals need pull-ups. This
+datasheet does not claim pad timing or a board demonstration.

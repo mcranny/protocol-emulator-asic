@@ -1,0 +1,25 @@
+# cocotb tests for the V3 program memory wrapper. Run from the repository root:
+#   make -C test -f Makefile.v3progmem
+# Compile modes are selected with DEFINES and VERILOG_SOURCES.
+SIM ?= icarus
+TOPLEVEL_LANG ?= verilog
+SIM_BUILD ?= sim_build/v3progmem
+COCOTB_RESULTS_FILE ?= results_v3progmem.xml
+# The tests use a 20.833 ns clock, whose half period needs 1 fs resolution.
+COCOTB_HDL_TIMEPRECISION ?= 1fs
+
+VERILOG_SOURCES ?= $(CURDIR)/../src/v3_progmem.v
+VERILOG_INCLUDE_DIRS ?= $(CURDIR)/../src
+
+# cocotb 2.x reads the COCOTB_ names; cocotb 1.x reads the bare names.
+COCOTB_TOPLEVEL = v3_progmem
+COCOTB_TEST_MODULES = test_progmem
+TOPLEVEL = v3_progmem
+MODULE = test_progmem
+export PYTHONPATH := $(CURDIR)/v3:$(PYTHONPATH)
+
+# DEFINES carries compile-only defines such as -DFUNCTIONAL. EXTRA_ARGS is not
+# used because cocotb also passes it to the simulator run, which rejects -D.
+COMPILE_ARGS += $(DEFINES)
+
+include $(shell cocotb-config --makefiles)/Makefile.sim
